@@ -1,6 +1,9 @@
 import random
 import time
 import sys
+import tkinter as tk
+from tkinter import simpledialog,messagebox
+
 red='\u001b[41m'
 white='\u001b[47m'
 blue='\u001b[44m'
@@ -29,7 +32,7 @@ def method():
     #按照key要求的顺序进行排列   
     # sorted(可迭代对象，key = 排序依据，reverse = 是否反转)
     condition = random.choice(specious)
-
+    
     if condition == '被感染' :
         print(f'\n{red}{"特殊情况： "}{a}')
         print(f'{red}{"被感染！！"}{a}') 
@@ -120,6 +123,10 @@ def method():
         print(f"{blue}你成功存活！！{a}")      
     print(f"{blue}THE END{a}")
 
+def publish():
+    popup = tk.Toplevel(root)
+
+    print("ok")
 
 def loading_multiple(m):
     bar = 30
@@ -134,11 +141,6 @@ def loading_multiple(m):
     
         sys.stdout.write('\r' + ' ' * (50 + bar) + '\r')
         sys.stdout.flush()
-
-def publish():
-    print("ok")
-    
-
 
 
 print(f"{red}正在生成末日环境{a}")
