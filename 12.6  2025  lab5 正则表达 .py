@@ -87,7 +87,7 @@ def extra():
         content = t.read()
     #print(content)
     pattern_date = r'\s\d+[-/..]\d+[-/..]\d{2,4}'
-    pattern_email =r' \w+@\w+[/..]\w+'
+    pattern_email =r' \w+@\w+[/..][a-zA-Z]+'
     pattern_website =r'\shttp[s:/]+\w+.[a-zA-Z]+'
     
     match_date = re.findall(pattern_date,content)
