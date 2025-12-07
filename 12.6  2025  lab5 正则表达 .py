@@ -86,7 +86,7 @@ def extra():
     with open ("task_add.txt","r",encoding="utf-8") as t:
         content = t.read()
     #print(content)
-    pattern_date = r'\s\d+[-/..]\d+[-/..]\d+'
+    pattern_date = r'\s\d+[-/..]\d+[-/..]\d{2,4}'
     pattern_email =r' \w+@\w+[/..]\w+'
     pattern_website =r'\shttp[s:/]+\w+.[a-zA-Z]+'
     
