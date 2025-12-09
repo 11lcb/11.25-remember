@@ -6,26 +6,44 @@ def first():
     print("作业1:")
     with open ('task1-en.txt','r',encoding="utf-8") as file_EN:
         content_EN = file_EN.read()
-    pattern_number = r'\b\d+(?:\.\d+)?\b'
-    pattern_letter_6 = r'\b[a-zA-Z]{6}\b'
-    pattern_letter_8 = r'\b[a-zA-Z]{8}\b'
-    match_letter_6 = re.findall(pattern_letter_6,content_EN)
-    match_letter_8 = re.findall(pattern_letter_8,content_EN)
-    match_number = re.findall(pattern_number,content_EN)
+    with open ('task1-ru.txt','r',encoding="utf-8") as file_RU:
+        content_RU = file_RU.read()
 
-    print('所有6个字母的单词:','有',len(match_letter_6),'个单词,for example:',match_letter_6)
-    print('所有8个字母的单词:','有',len(match_letter_8),'个单词,for example:',match_letter_8)
-    print('所有数字:','有',len(match_number),'个数字,for example:',match_number)
+    pattern_C = r'\b[cC]\w*'
+    pattern_the = r'\b[tT]he\s+[a-zA-Z]+'
+    pattern_И = r'\b[иИ]\s+[а-яА-ЯёЁ]+'
+    text_en = content_EN
+    text_ru = content_RU
+
+    match_c = re.findall(pattern_C,text_en)
+    match_the = re.findall(pattern_the,text_en)
+    match_И = re.findall(pattern_И,text_ru)
+    
+    print('以c/C开头的单词:','有',len(match_c),'个单词,for example:',match_c[:5])
+    print('"the"后面的单词:','有',len(match_the),'个单词,for example:',match_the[:5])
+    print('"И"后面的单词：','有',len(match_И),'个单词,for example:',match_И[:5])
 
 def second():
     print("\n","作业2:")
     with open ('task2.html','r',encoding='utf-8') as a:
         text = a.read()
-        pattern= r'content="(.*?)"'
-        match = re.findall(pattern,text)
-        print("所有的content后面一共有:",len(match),"个字符串")
-        print("所有字符串:",match if match else 'not found')
-        
+        pattern_1= r"font-family:\s*'.*?'"
+        match_1 = re.findall(pattern_1,text)
+        Match_1 = [i[14:22] for i in match_1]
+        pattern_2= r'font-style:\s.*?;'
+        match_2 = re.findall(pattern_2,text)
+        Match_2 = [i[12:18] for i in match_2]
+        pattern_3= r'font-weight:\s.*?;'
+        match_3 = re.findall(pattern_3,text)
+        Match_3 = [i[13:16] for i in match_3]
+        pattern_4= r"font-display:\s.*?;"
+        match_4 = re.findall(pattern_4,text)
+        Match_4 = [i[14:18] for i in match_4]
+
+        print("font-family:",Match_1 if match_1 else 'not found')
+        print("font-style:",Match_2 if match_2 else 'not found')
+        print("font-weight:",Match_3 if match_3 else 'not found')
+        print("font-display:",Match_4 if match_4 else 'not found')
     
 def third():
     print('\n',"作业3:")

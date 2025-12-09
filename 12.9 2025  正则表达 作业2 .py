@@ -6,44 +6,29 @@ def first():
     print("作业1:")
     with open ('task1-en.txt','r',encoding="utf-8") as file_EN:
         content_EN = file_EN.read()
-    with open ('task1-ru.txt','r',encoding="utf-8") as file_RU:
-        content_RU = file_RU.read()
 
-    pattern_C = r'\b[cC]\w*'
-    pattern_the = r'\b[tT]he\s+[a-zA-Z]+'
-    pattern_И = r'\b[иИ]\s+[а-яА-ЯёЁ]+'
+    pattern_A_z = r'\b[A-Z]+[a-zA-Z]+\b'
+    pattern_maohao = r'\b\w+:'
     text_en = content_EN
-    text_ru = content_RU
 
-    match_c = re.findall(pattern_C,text_en)
-    match_the = re.findall(pattern_the,text_en)
-    match_И = re.findall(pattern_И,text_ru)
+    match_a_z = re.findall(pattern_A_z,text_en)
+    match_maohao = re.findall(pattern_maohao,text_en)
+
     
-    print('以c/C开头的单词:','有',len(match_c),'个单词,for example:',match_c[:5])
-    print('"the"后面的单词:','有',len(match_the),'个单词,for example:',match_the[:5])
-    print('"И"后面的单词：','有',len(match_И),'个单词,for example:',match_И[:5])
+    print('所有大写字母开头的单词','有',len(match_a_z),'个单词:',match_a_z)
+    print('后面有冒号的词','有',len(match_maohao),'个单词:',match_maohao)
 
 def second():
     print("\n","作业2:")
     with open ('task2.html','r',encoding='utf-8') as a:
         text = a.read()
-        pattern_1= r"font-family:\s*'.*?'"
-        match_1 = re.findall(pattern_1,text)
-        Match_1 = [i[14:22] for i in match_1]
-        pattern_2= r'font-style:\s.*?;'
-        match_2 = re.findall(pattern_2,text)
-        Match_2 = [i[12:18] for i in match_2]
-        pattern_3= r'font-weight:\s.*?;'
-        match_3 = re.findall(pattern_3,text)
-        Match_3 = [i[13:16] for i in match_3]
-        pattern_4= r"font-display:\s.*?;"
-        match_4 = re.findall(pattern_4,text)
-        Match_4 = [i[14:18] for i in match_4]
+    pattern_1= r'</([a-zA-Z][a-zA-Z0-9]*)>'
+    match_1 = re.findall(pattern_1,text)
+    new_match = set(match_1)
 
-        print("font-family:",Match_1 if match_1 else 'not found')
-        print("font-style:",Match_2 if match_2 else 'not found')
-        print("font-weight:",Match_3 if match_3 else 'not found')
-        print("font-display:",Match_4 if match_4 else 'not found')
+    print("所有闭合标签:",new_match if match_1 else 'not found')
+    print("有",len(new_match),"个标签")
+
     
 def third():
     print('\n',"作业3:")
@@ -103,5 +88,5 @@ def extra():
 if __name__== '__main__':
     first()    
     second()
-    third()
+    #third()
     extra()
