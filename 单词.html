@@ -1,0 +1,504 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Russian Math Flashcards with Gemini</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f3f4f6;
+        }
+        .perspective-1000 {
+            perspective: 1000px;
+        }
+        .transform-style-3d {
+            transform-style: preserve-3d;
+        }
+        .backface-hidden {
+            backface-visibility: hidden;
+        }
+        .rotate-y-180 {
+            transform: rotateY(180deg);
+        }
+        .card-container {
+            transition: transform 0.6s;
+            cursor: pointer;
+        }
+        .card-container.flipped {
+            transform: rotateY(180deg);
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8; 
+        }
+        .gemini-gradient {
+            background: linear-gradient(90deg, #4b6cb7 0%, #182848 100%);
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center p-4">
+
+    <!-- Header -->
+    <div class="text-center mb-6 mt-4">
+        <h1 class="text-3xl font-bold text-gray-800 mb-2">Russian Math Terms</h1>
+        <p class="text-gray-600">Exam Prep - 18 Essential Phrases</p>
+    </div>
+
+    <!-- Main Card Area -->
+    <div class="perspective-1000 w-full max-w-lg h-80 relative group z-10">
+        <div id="flashcard" class="card-container relative w-full h-full transform-style-3d shadow-xl rounded-2xl">
+            
+            <!-- Front of Card -->
+            <div class="absolute w-full h-full bg-white rounded-2xl p-8 flex flex-col items-center justify-center text-center backface-hidden border-2 border-blue-100">
+                <span class="absolute top-4 left-4 text-xs font-bold text-blue-500 tracking-wider">RUSSIAN</span>
+                <p id="card-front" class="text-2xl md:text-3xl font-medium text-gray-800 leading-relaxed select-none">
+                    Loading...
+                </p>
+                <p class="text-sm text-gray-400 mt-6 animate-pulse">(Click to flip)</p>
+            </div>
+
+            <!-- Back of Card -->
+            <div class="absolute w-full h-full bg-blue-600 rounded-2xl p-8 flex flex-col items-center justify-center text-center backface-hidden rotate-y-180 border-2 border-blue-700 text-white">
+                <span class="absolute top-4 left-4 text-xs font-bold text-blue-200 tracking-wider">ENGLISH & MATH</span>
+                <p id="card-back-text" class="text-xl font-medium mb-4 select-none">
+                    Loading...
+                </p>
+                <div id="card-back-example" class="text-lg bg-blue-700 bg-opacity-50 p-3 rounded-lg w-full">
+                    Loading...
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="flex items-center justify-between w-full max-w-lg mt-8 mb-6">
+        <button onclick="prevCard()" class="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-3 px-6 border border-gray-300 rounded-lg shadow transition transform active:scale-95 flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+            Prev
+        </button>
+
+        <span id="counter" class="text-gray-500 font-mono font-bold">1 / 18</span>
+
+        <button onclick="nextCard()" class="bg-white hover:bg-gray-100 text-gray-800 font-semibold py-3 px-6 border border-gray-300 rounded-lg shadow transition transform active:scale-95 flex items-center gap-2">
+            Next
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+        </button>
+    </div>
+
+    <!-- AI Tools Section -->
+    <div class="w-full max-w-lg bg-white rounded-2xl shadow-lg border border-gray-200 overflow-hidden">
+        <div class="gemini-gradient p-4 flex justify-between items-center">
+            <h2 class="text-white font-bold flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-yellow-300"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg>
+                AI Assistant (Gemini)
+            </h2>
+        </div>
+        
+        <div class="p-4 space-y-4">
+            <div class="grid grid-cols-2 gap-3">
+                <button onclick="askGeminiExplanation()" class="flex flex-col items-center justify-center p-3 border border-indigo-100 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition text-indigo-700 font-semibold text-sm">
+                    <span class="text-xl mb-1">🧐</span>
+                    Explain Concept
+                </button>
+                <button onclick="askGeminiExample()" class="flex flex-col items-center justify-center p-3 border border-purple-100 bg-purple-50 hover:bg-purple-100 rounded-xl transition text-purple-700 font-semibold text-sm">
+                    <span class="text-xl mb-1">📝</span>
+                    New Practice Problem
+                </button>
+            </div>
+
+            <!-- AI Output Area -->
+            <div id="ai-output-container" class="hidden">
+                <div class="bg-gray-50 rounded-xl p-4 border border-gray-200 text-sm text-gray-700 leading-relaxed">
+                    <div id="loading-indicator" class="hidden flex items-center gap-2 text-gray-500">
+                        <svg class="animate-spin h-4 w-4 text-indigo-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        Gemini is thinking...
+                    </div>
+                    <div id="ai-content"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Instructions -->
+    <div class="mt-8 text-sm text-gray-500 text-center max-w-md pb-8">
+        <p>Use arrow keys to navigate. Spacebar to flip.</p>
+        <p class="mt-2 text-xs">Note: AI requires an active internet connection.</p>
+    </div>
+
+    <script>
+        // API Configuration
+        const apiKey = "AIzaSyC7e7t9pMTwXhFxBbItFWxqrrOgilyWijE"; // System will provide this automatically
+
+        const cards = [
+            {
+                front: "приводить к общему знаменателю",
+                back: "To find a common denominator",
+                example: "$$\\frac{1}{2} + \\frac{1}{3} \\rightarrow \\frac{3}{6} + \\frac{2}{6}$$"
+            },
+            {
+                front: "Перемножить крест накрест",
+                back: "To cross-multiply (solving proportions)",
+                example: "$$\\frac{x}{2} = \\frac{3}{5} \\rightarrow 5x = 6$$"
+            },
+            {
+                front: "Перенести неизвестные в одну часть, а известные в другую",
+                back: "Move unknowns to one side, knowns to the other",
+                example: "$$3x + 4 = 2x \\rightarrow 3x - 2x = -4$$"
+            },
+            {
+                front: "Перенести все влево (или вправо) и поменять знаки на противоположные",
+                back: "Move everything to one side and flip signs",
+                example: "$$x^2 = 5x \\rightarrow x^2 - 5x = 0$$"
+            },
+            {
+                front: "Раскрыть скобки",
+                back: "To expand the brackets / Distribute",
+                example: "$$2(x+3) \\rightarrow 2x + 6$$"
+            },
+            {
+                front: "Вынести за скобки",
+                back: "To factor out / Take out of brackets",
+                example: "$$2x + 6 \\rightarrow 2(x+3)$$"
+            },
+            {
+                front: "Внести в скобку",
+                back: "To move (a number) into the bracket",
+                example: "$$3(x-1) \\rightarrow 3x - 3$$"
+            },
+            {
+                front: "Приводить подобные",
+                back: "To combine like terms",
+                example: "$$2x + 5 + 3x \\rightarrow 5x + 5$$"
+            },
+            {
+                front: "Представить в виде (например, десятичной дроби)",
+                back: "To represent as / Convert to",
+                example: "$$\\frac{1}{2} \\rightarrow 0.5$$"
+            },
+            {
+                front: "Область допустимых значений (ОДЗ)",
+                back: "Domain / Constraints (values x cannot be)",
+                example: "$$\\text{For } \\frac{1}{x}, \\text{ ODZ: } x \\neq 0$$"
+            },
+            {
+                front: "Не удовлетворяет условиям (ОДЗ)",
+                back: "Does not satisfy conditions (Extraneous solution)",
+                example: "If found $$x=0$$, but ODZ says $$x \\neq 0$$"
+            },
+            {
+                front: "Найти дискриминант и корни уравнения",
+                back: "Find discriminant and roots",
+                example: "$$ax^2+bx+c=0 \\rightarrow D=b^2-4ac$$"
+            },
+            {
+                front: "Нет решений / пустое множество",
+                back: "No solutions / Empty set",
+                example: "$$x^2 = -4$$ or $$D < 0$$"
+            },
+            {
+                front: "Разделить обе части на число, стоящее перед х",
+                back: "Divide both sides by coefficient of x",
+                example: "$$3x = 12 \\rightarrow x = 4$$"
+            },
+            {
+                front: "Разложить (многочлен) на множители",
+                back: "To factorize (a polynomial)",
+                example: "$$x^2 - 9 \\rightarrow (x-3)(x+3)$$"
+            },
+            {
+                front: "Группировать неизвестные (переменные)",
+                back: "To group unknowns (variables)",
+                example: "$$ax + bx + c \\rightarrow x(a+b) + c$$"
+            },
+            {
+                front: "Возводить обе части в степень",
+                back: "To raise both sides to a power",
+                example: "$$\\sqrt{x} = 5 \\rightarrow x = 25$$"
+            },
+            {
+                front: "Извлекать корень",
+                back: "To extract the root (take square root)",
+                example: "$$x^2 = 36 \\rightarrow x = \\pm 6$$"
+            },
+            {
+                front: "зонтик",
+                back: "雨伞",
+                example: "🌂"
+            },
+            {
+                front: "под. над. за. между. рядом с",
+                back: "下 上 后 前 中间 附近   +5格",
+            },
+            {
+                front: "напротив",
+                back: "前面+2格",
+            },
+            {
+                front: "",
+                back: "",
+            },
+            {
+                front: "",
+                back: "",
+            },
+            {
+                front: "",
+                back: "",
+            },
+            {
+                front: "",
+                back: "",
+            },
+            {
+                front: "",
+                back: "",
+            },
+            {
+                front: "",
+                back: "",
+            },
+            {
+                front: "",
+                back: "",
+            },
+            {
+                front: "",
+                back: "",
+            },
+            {
+                front: "",
+                back: "",
+            },
+            {
+                front: "",
+                back: "",
+            },
+            {
+                front: "",
+                back: "",
+            },
+            {
+                front: "",
+                back: "",
+            },
+            {
+                front: "",
+                back: "",
+            },
+            {
+                front: "",
+                back: "",
+            },
+            {
+                front: "",
+                back: "",
+            },
+            {
+                front: "",
+                back: "",
+            },
+            {
+                front: "",
+                back: "",
+            },
+            {
+                front: "",
+                back: "",
+            },
+            {
+                front: "",
+                back: "",
+            },
+            {
+                front: "",
+                back: "",
+            },
+            {
+                front: "",
+                back: "",
+            },
+            {
+                front: "",
+                back: "",
+            },
+            {
+                front: "",
+                back: "",
+            },
+            {
+                front: "",
+                back: "",
+            },
+            {
+                front: "",
+                back: "",
+            },    
+        ];
+
+        let currentIndex = 0;
+        const cardElement = document.getElementById('flashcard');
+        const frontText = document.getElementById('card-front');
+        const backText = document.getElementById('card-back-text');
+        const backExample = document.getElementById('card-back-example');
+        const counterElement = document.getElementById('counter');
+        const aiContainer = document.getElementById('ai-output-container');
+        const aiContent = document.getElementById('ai-content');
+        const loadingIndicator = document.getElementById('loading-indicator');
+
+        function updateCard() {
+            // Reset AI area on card change
+            aiContainer.classList.add('hidden');
+            aiContent.innerHTML = '';
+
+            // Reset flip state
+            cardElement.classList.remove('flipped');
+            
+            // Wait slightly for flip back before changing text if it was flipped
+            setTimeout(() => {
+                const card = cards[currentIndex];
+                frontText.innerText = card.front;
+                backText.innerText = card.back;
+                backExample.innerHTML = card.example;
+                counterElement.innerText = `${currentIndex + 1} / ${cards.length}`;
+                
+                // Trigger MathJax render
+                if (window.MathJax) {
+                    MathJax.typesetPromise([backExample]).catch((err) => console.log(err));
+                }
+            }, 150);
+        }
+
+        function nextCard() {
+            if (currentIndex < cards.length - 1) {
+                currentIndex++;
+                updateCard();
+            } else {
+                currentIndex = 0;
+                updateCard();
+            }
+        }
+
+        function prevCard() {
+            if (currentIndex > 0) {
+                currentIndex--;
+                updateCard();
+            } else {
+                currentIndex = cards.length - 1;
+                updateCard();
+            }
+        }
+
+        // --- Gemini Integration ---
+
+        async function callGeminiAPI(prompt) {
+            aiContainer.classList.remove('hidden');
+            loadingIndicator.classList.remove('hidden');
+            aiContent.innerHTML = '';
+
+            try {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        contents: [{
+                            parts: [{ text: prompt }]
+                        }]
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('API Request Failed');
+                }
+
+                const data = await response.json();
+                const text = data.candidates[0].content.parts[0].text;
+                
+                // Parse Markdown and display
+                aiContent.innerHTML = marked.parse(text);
+                
+                // Trigger MathJax for AI content
+                if (window.MathJax) {
+                    MathJax.typesetPromise([aiContent]).catch((err) => console.log(err));
+                }
+
+            } catch (error) {
+                console.error("Gemini Error:", error);
+                aiContent.innerHTML = `<span class="text-red-500">Error connecting to Gemini. Please try again.</span>`;
+            } finally {
+                loadingIndicator.classList.add('hidden');
+            }
+        }
+
+        function askGeminiExplanation() {
+            const card = cards[currentIndex];
+            const prompt = `
+            Act as a math tutor helping a student learn Russian math terminology.
+            The term is: "${card.front}" (Russian).
+            The meaning is: "${card.back}".
+            
+            Please provide a brief, clear explanation in English of what this math operation actually does and when it is used in algebra. 
+            Keep it under 3 sentences. 
+            Then, provide a phonetic pronunciation guide for the Russian phrase.
+            `;
+            callGeminiAPI(prompt);
+        }
+
+        function askGeminiExample() {
+            const card = cards[currentIndex];
+            const prompt = `
+            Act as a math tutor.
+            The current topic is the Russian math term: "${card.front}" which means "${card.back}".
+            
+            Generate a NEW, unique math problem (different from the one currently shown: ${card.example}) where the student must perform this specific step.
+            Show the problem, and then show the step being applied.
+            Use LaTeX formatting (wrapped in $$ or $) for all math.
+            Keep it concise.
+            `;
+            callGeminiAPI(prompt);
+        }
+
+        // --- Event Listeners ---
+
+        cardElement.addEventListener('click', () => {
+            cardElement.classList.toggle('flipped');
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' || e.code === 'Enter') {
+                e.preventDefault(); 
+                cardElement.classList.toggle('flipped');
+            } else if (e.code === 'ArrowRight') {
+                nextCard();
+            } else if (e.code === 'ArrowLeft') {
+                prevCard();
+            }
+        });
+
+        // Initialize
+        updateCard();
+
+    </script>
+</body>
+</html>

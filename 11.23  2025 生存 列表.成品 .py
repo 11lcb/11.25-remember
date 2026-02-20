@@ -18,7 +18,6 @@ items = [
 
 specious = ['被感染','哮喘','无事发生']
 
-
 def method():
     m = input("勇士要带多大的背包？\n  背包格数： ")
     package = int(m)
@@ -32,7 +31,7 @@ def method():
     #按照key要求的顺序进行排列   
     # sorted(可迭代对象，key = 排序依据，reverse = 是否反转)
     condition = random.choice(specious)
-    
+
     if condition == '被感染' :
         print(f'\n{red}{"特殊情况： "}{a}')
         print(f'{red}{"被感染！！"}{a}') 
@@ -82,7 +81,7 @@ def method():
             total_points -= points_2         
 
         final_item.append(("吸入器","i", 1 , 5 ))
-        final_item_name.append("吸入器")        
+        final_item_name.append("吸入器")
         total_points += 5
         print(f'{blue}{final_item_name}{a}\n')
 
@@ -124,8 +123,8 @@ def method():
     print(f"{blue}THE END{a}")
 
 def publish():
-    popup = tk.Toplevel(root)
-
+    popup_1= tk.Toplevel()
+    popup_1.geometry('300x300')
     print("ok")
 
 def loading_multiple(m):
@@ -138,11 +137,34 @@ def loading_multiple(m):
             L = b * i + "0" * (bar - i)
             sys.stdout.write(f'\rTask {p+1}/{m} [{L}] {percent:3d}%')
             sys.stdout.flush()
-    
+
         sys.stdout.write('\r' + ' ' * (50 + bar) + '\r')
         sys.stdout.flush()
 
+root = tk.Tk()
+root.title("publish")
+root.geometry('300x300')
 
+photo= tk.PhotoImage(file='gradient.png')
+label_bg = tk.Label(root, image=photo)
+label_bg.place(x=0, y=0, relwidth=1, relheight=1)
+
+root_label = tk.Label(root,text = 'type the text ', bg='pink',font=("Arial",
+                                                            16,"bold"))
+root_label.place(relx = 0.04, rely = 0.15)
+
+letter_entry = tk.Entry(root, width=5, font=('Verdana', 16))
+letter_entry.insert(0, 'a')
+
+root_button = tk.Button(root,text='button_1',command = publish ,bg='pink',
+                                                        font=("Arial",14,"bold"))
+root_button.place(relx = 0.35, rely = 0.4)
+
+root_button = tk.Button(root,text='关闭',command = root.destroy,bg='pink',font=("Arial",
+                                                                11,"bold"))
+root_button.place(relx = 0.7, rely = 0.8)
+
+root.mainloop()
 print(f"{red}正在生成末日环境{a}")
 loading_multiple(3)
 method()
