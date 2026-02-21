@@ -42,10 +42,6 @@ def time_1(seconds_left):
         a.itemconfig(zengyi_1_text,text = f"强化子弹：{seconds_left}秒")
     else:
         a.itemconfig(zengyi_1_text,text =" ") 
-           
-def over():
-    global zengyi_1
-    zengyi_1 = False
 
 #重新开始
 def restart():
@@ -80,43 +76,53 @@ root.bind("<KeyPress-Up>",lambda e:globals().update(up_1 = True))
 root.bind("<KeyRelease-Up>",lambda e:globals().update(up_1 = False))
 root.bind("<KeyPress-Down>",lambda e:globals().update(down_1 = True))
 root.bind("<KeyRelease-Down>",lambda e:globals().update(down_1 = False))
-        
+
+#暂停设置
+def key_press():
+    global paused,pause_text ,pause_bg,pause_text_1,pause_bg_1
+    paused = not paused
+    if paused:
+        print("游戏暂停")
+        pause_bg = a.create_rectangle(210,110,410,210,fill='pink',stipple ='gray50',outline='') 
+        pause_text = a.create_text(310 ,160,text = "游戏暂停",fill = "white",font = ("Arial",20))
+    else:
+        print("游戏继续")
+        if pause_bg:
+            a.delete(pause_bg)
+            pause_bg = None
+        if pause_text:    
+            a.delete(pause_text)
+            pause_text = None
+        if pause_bg_1:
+            a.delete(pause_bg_1)
+            pause_bg_1 = None
+        if pause_text_1:    
+            a.delete(pause_text_1)
+            pause_text_1 = None
+#射击设置 
+def shoot():
+    colors=[ '#FFB6C1','#87CEEB','#98FB98','#DDA0DD'
+            ,'#FFD700','#F0E68C','#E6E6FA','#B0E0E6']
+    b.append(a.create_rectangle(a.coords(B)[0]+17, a.coords(B)[1], 
+                    a.coords(B)[0]+23, a.coords(B)[1]-10, fill='white'))
+    if zengyi_1 :
+        cor = random.choice(colors)
+        b.append(a.create_rectangle(a.coords(B)[0]+5, a.coords(B)[1], 
+            a.coords(B)[0]+11, a.coords(B)[1]-10, fill=cor))
+        b.append(a.create_rectangle(a.coords(B)[0]+29, a.coords(B)[1], 
+            a.coords(B)[0]+35, a.coords(B)[1]-10, fill=cor))            
+
 def move(event):       
     global zengyi_1, paused ,pause_text ,pause_bg
     if event.keysym == 'p':
-        paused = not paused
-        if paused:
-            print("游戏暂停")
-            pause_bg = a.create_rectangle(210,110,410,210,fill='pink',stipple ='gray50',outline='') 
-            pause_text = a.create_text(310 ,160,text = "游戏暂停",fill = "white",font = ("Arial",20))
-        else:
-            print("游戏继续")
-            if pause_bg:
-                a.delete(pause_bg)
-                pause_bg = None
-            if pause_text:    
-                a.delete(pause_text)
-                pause_text = None
-    #射击设置            
+        key_press()          
     if not paused:
-        colors=[ '#FFB6C1','#87CEEB','#98FB98','#DDA0DD'
-                ,'#FFD700','#F0E68C','#E6E6FA','#B0E0E6']
         #if event.keysym == 'Left' and a.coords(B)[0] > 0: a.move(B, -15, 0)
         #elif event.keysym == 'Up' and a.coords(B)[1] > 0: a.move(B,0,-15)
         #elif event.keysym == 'Right' and a.coords(B)[2] < 600: a.move(B, 15, 0)
         #elif event.keysym == 'Down' and a.coords(B)[3] <400 : a.move(B,0,15)
         if event.keysym == 'space':
-            b.append(a.create_rectangle
-                    (a.coords(B)[0]+17, a.coords(B)[1], 
-                    a.coords(B)[0]+23, a.coords(B)[1]-10, fill='white'))
-            if zengyi_1 :
-                cor = random.choice(colors)
-                b.append(a.create_rectangle
-                    (a.coords(B)[0]+5, a.coords(B)[1], 
-                    a.coords(B)[0]+11, a.coords(B)[1]-10, fill=cor))
-                b.append(a.create_rectangle
-                    (a.coords(B)[0]+29, a.coords(B)[1], 
-                    a.coords(B)[0]+35, a.coords(B)[1]-10, fill=cor))  
+            shoot()      
     else:
         pass                                                  
                 
@@ -126,6 +132,15 @@ pause_text = None
 
 Score = a.create_text(500 ,20 ,text="", font=("Arial", 12),fill="yellow")
 High_score = a.create_text(150 ,20 ,text="", font=("Arial", 12),fill="red")
+
+paused = True
+pause_bg_1 = a.create_rectangle(25,70,165,110,fill='pink',stipple ='gray50',outline='') 
+pause_text_1 = a.create_text(100 ,90,text = "游戏规则：",fill = "white",font = ("Arial",20))
+
+pause_bg = a.create_rectangle(190,100,430,220,fill='pink',stipple ='gray50',outline='') 
+pause_text = a.create_text(310 ,160,text =f" 1.↑↓←→ 控制移动 \n 2.‘P’暂停,开始 \n 3.空格射击"
+                            ,fill = "white",font = ("Arial",20))
+key_press
 
 #主循环
 while True:    
@@ -221,38 +236,6 @@ while True:
             except:
                 continue 
     #增益 2 移速增加
-        if random.random() < 0.0007:                      
-            zengyi2 = random.randint(1,570)
-            z.append(a.create_rectangle(zengyi2, 0, zengyi2+20, 30, fill='purple')) 
-
-        for z1 in Z:
-            a.move(z1, 0, 0.9)
-            if a.coords(z1)[1] > 400:
-                a.delete(z1); z.remove(z1)
-
-        frame_count += 1
-        if frame_count >= 50:
-            frame_count = 0
-            if zengyi_1_time_left > 0 :
-                zengyi_1_time_left -= 1
-                time_1(zengyi_1_time_left)
-                if zengyi_1_time_left <= 0 :
-                    zengyi_1 = False
-
-        for z11 in Z:        
-            try:    
-                if (a.coords(z11)[0] < a.coords(B)[2] and
-                    a.coords(z11)[2] > a.coords(B)[0] and
-                    a.coords(z11)[1] < a.coords(B)[3] and
-                    a.coords(z11)[3] > a.coords(B)[1] ):
-                    if z1 in z:
-                        a.delete(z11); z.remove(z11)
-                        print ("获得增益: 10秒强化移速")
-                        speed_user = 9
-                        zengyi_1 = True
-                        zengyi_1_time_left = 10             
-            except:
-                continue            
 
     #子弹射敌效果
         for zidan in n:

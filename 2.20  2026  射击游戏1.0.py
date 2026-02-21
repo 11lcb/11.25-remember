@@ -43,10 +43,13 @@ def time_1(seconds_left):
     else:
         a.itemconfig(zengyi_1_text,text =" ") 
            
+def over():
+    global zengyi_1
+    zengyi_1 = False
 
 #重新开始
 def restart():
-    if popup:popup.destroy()
+    popup.destroy()
     global e,b,z,score,speed,B,pause_bg,pause_text,Score,High_score,zengyi_1_text
     e = []  
     b = []   
@@ -64,26 +67,6 @@ def restart():
 #
 paused = False
 
-#暂停游戏
-def key_press(event):
-    global paused,pause_text ,pause_bg
-    if event.keysym == 'p':
-        paused = not paused
-        if paused:
-            print("游戏暂停")
-            pause_bg = a.create_rectangle(210,110,410,210,fill='pink',stipple ='gray50',outline='') 
-            pause_text = a.create_text(310 ,160,text = "游戏暂停",fill = "white",font = ("Arial",20))
-        else:
-            print("游戏继续")
-            if pause_bg:
-                a.delete(pause_bg)
-                pause_bg = None
-            if pause_text:    
-                a.delete(pause_text)
-                pause_text = None
-    root.bind("<KeyPress>",key_press)            
-
-
 #操作控制
 left_1 = False
 up_1 = False 
@@ -99,8 +82,21 @@ root.bind("<KeyPress-Down>",lambda e:globals().update(down_1 = True))
 root.bind("<KeyRelease-Down>",lambda e:globals().update(down_1 = False))
         
 def move(event):       
-    global zengyi_1, paused 
-    key_press(event)
+    global zengyi_1, paused ,pause_text ,pause_bg
+    if event.keysym == 'p':
+        paused = not paused
+        if paused:
+            print("游戏暂停")
+            pause_bg = a.create_rectangle(210,110,410,210,fill='pink',stipple ='gray50',outline='') 
+            pause_text = a.create_text(310 ,160,text = "游戏暂停",fill = "white",font = ("Arial",20))
+        else:
+            print("游戏继续")
+            if pause_bg:
+                a.delete(pause_bg)
+                pause_bg = None
+            if pause_text:    
+                a.delete(pause_text)
+                pause_text = None
     #射击设置            
     if not paused:
         colors=[ '#FFB6C1','#87CEEB','#98FB98','#DDA0DD'
@@ -131,19 +127,13 @@ pause_text = None
 Score = a.create_text(500 ,20 ,text="", font=("Arial", 12),fill="yellow")
 High_score = a.create_text(150 ,20 ,text="", font=("Arial", 12),fill="red")
 
-
-paused = True
-pause_bg = a.create_rectangle(210,110,410,210,fill='pink',stipple ='gray50',outline='') 
-pause_text = a.create_text(310 ,160,text = "游戏暂停aaa",fill = "white",font = ("Arial",20))
-key_press
-    
 #主循环
-
-while True: 
+while True:    
     if not paused: 
         e2 = e[:]
         n = b[:]
         Z = z[:]
+
     #主循环控制移动
         speed_user = 5
         if left_1 and a.coords(B)[0] >0: a.move(B, -speed_user, 0)
@@ -156,6 +146,7 @@ while True:
             er = random.randint(30,600) 
             if er-el>10 :
                 e.append(a.create_rectangle(el, 0, er, 30, fill='red'))
+
     #敌人移动，碰撞，结束, 结束菜单 
         speed = 0.5 + score*0.05     
         for enemy in e:
@@ -229,22 +220,6 @@ while True:
                         zengyi_1_time_left = 10             
             except:
                 continue 
-   
-
-        for z11 in Z:        
-            try:    
-                if (a.coords(z11)[0] < a.coords(B)[2] and
-                    a.coords(z11)[2] > a.coords(B)[0] and
-                    a.coords(z11)[1] < a.coords(B)[3] and
-                    a.coords(z11)[3] > a.coords(B)[1] ):
-                    if z1 in z:
-                        a.delete(z11); z.remove(z11)
-                        print ("获得增益: 10秒强化移速")
-                        speed_user = 9
-                        zengyi_1 = True
-                        zengyi_1_time_left = 10             
-            except:
-                continue            
 
     #子弹射敌效果
         for zidan in n:
@@ -268,35 +243,4 @@ while True:
 
     root.update()
     time.sleep(0.01)
-            if random.random() < 0.0007:                      
-            zengyi2 = random.randint(1,570)
-            z.append(a.create_rectangle(zengyi2, 0, zengyi2+20, 30, fill='purple')) 
-
-        for z1 in Z:
-            a.move(z1, 0, 0.9)
-            if a.coords(z1)[1] > 400:
-                a.delete(z1); z.remove(z1)
-
-        frame_count += 1
-        if frame_count >= 50:
-            frame_count = 0
-            if zengyi_1_time_left > 0 :
-                zengyi_1_time_left -= 1
-                time_1(zengyi_1_time_left)
-                if zengyi_1_time_left <= 0 :
-                    zengyi_1 = False
-
-        for z11 in Z:        
-            try:    
-                if (a.coords(z11)[0] < a.coords(B)[2] and
-                    a.coords(z11)[2] > a.coords(B)[0] and
-                    a.coords(z11)[1] < a.coords(B)[3] and
-                    a.coords(z11)[3] > a.coords(B)[1] ):
-                    if z1 in z:
-                        a.delete(z11); z.remove(z11)
-                        print ("获得增益: 10秒强化移速")
-                        speed_user = 9
-                        zengyi_1 = True
-                        zengyi_1_time_left = 10             
-            except:
-                continue    
+        
