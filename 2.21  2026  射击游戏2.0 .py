@@ -8,6 +8,9 @@ root.protocol("WM_DELETE_WINDOW",root.destroy)
 root.title("game")
 main_frame = tk.Frame(root)
 main_frame.pack()
+m1 = root.winfo_screenwidth()//2-300
+m2 = root.winfo_screenheight()//2-300
+root.geometry(f'{600}x{450}+{m1}+{m2}')
 
 control_frame = tk.Frame(main_frame)
 control_frame.pack(side=tk.TOP, fill=tk.X)
@@ -16,8 +19,8 @@ close_button = tk.Button(control_frame, text="不玩了", command=lambda:os._exi
                          bg="black", fg="white", width=10)
 close_button.pack(side=tk.RIGHT, padx=5, pady=2)
 
-#score_label = tk.Label(control_frame, text=f"请输入文本", font=("Arial", 12))
-#core_label.pack(side=tk.LEFT, padx=5)
+score_label = tk.Label(control_frame, text=f"道具： ①蓝色：子弹强化 ②紫色：移速增加", font=("Arial", 12))
+score_label.pack(side=tk.LEFT, padx=5)
 
 a = tk.Canvas(main_frame, width=600, height=400, bg='black')
 a.pack()
