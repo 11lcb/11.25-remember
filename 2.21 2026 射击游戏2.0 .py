@@ -262,4 +262,3 @@ while True:
 
     root.update()
     time.sleep(0.01)
-        
