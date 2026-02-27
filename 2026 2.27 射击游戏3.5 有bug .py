@@ -20,7 +20,7 @@ close_button = tk.Button(control_frame, text="不玩了", command=lambda:os._exi
                          bg="black", fg="white", width=10)
 close_button.pack(side=tk.RIGHT, padx=5, pady=2)
 
-score_label = tk.Label(control_frame, text=f"道具： ①蓝色：子弹强化 ②紫色：移速增加", font=("Arial", 12))
+score_label = tk.Label(control_frame, text=f"道具： ①蓝色：子弹强化 ②紫色：移速增加 ③青色：左shift 瞬移", font=("Arial", 12))
 score_label.pack(side=tk.LEFT, padx=5)
 
 a = tk.Canvas(main_frame, width=900, height=700, bg='black')
@@ -45,6 +45,7 @@ z3 = []         # z3 = 增益3
 score = 0
 high_score = 0
 speed_user = 5  #角色移动
+hurt = 500
 
                 #canvas.move(对象ID,dx,dy)
 
@@ -237,8 +238,10 @@ pause_bg = a.create_rectangle(190,100,430,220,fill='pink',stipple ='gray50',outl
 pause_text = a.create_text(310 ,160,text =f" 1.↑↓←→ 控制移动 \n 2.‘P’暂停,开始 \n 3.空格射击"
                             ,fill = "white",font = ("Arial",20))
 
-pause_bg_2 = a.create_rectangle(190,290,630,410,fill='pink',stipple ='gray50',outline='')
-pause_text_2 = a.create_text(375 ,350,text =f" 1.蓝色：强化子弹，持续15秒\n 2.紫色：增强移速，持续十秒 \n 3.瞬移到最下方敌人的下面"
+pause_bg_2 = a.create_rectangle(50,270,700,430,fill='pink',stipple ='gray50',outline='')
+pause_text_2 = a.create_text(375 ,350,text =f" 1. 蓝色：强化子弹，持续15秒\n" 
+                    " 2. 紫色：增强移速，持续十秒 \n "
+                    "3. 青色：拾取后左shift，瞬移到最下方敌人的下面\n     如果地图中无敌人，消耗一次传送增加5分"
                             ,fill = "white",font = ("Arial",20))
 key_press
 
@@ -257,18 +260,17 @@ while True:
         if right_1 and a.coords(B)[2] < 900: a.move(B, speed_user, 0)
         if down_1 and a.coords(B)[3] <700 : a.move(B,0,speed_user)
     #敌人
-        if random.random() < 0.05:                        
-            el = random.randint(0,870)
-            er = random.randint(30,900) 
-            if er-el>30 and er-el<300 :
-                e.append(a.create_rectangle(el, 0, er, 30, fill='red'))
+        if random.random() < 0.005:                        
+            up = random.randint(3,40)
+            e_size = up                     
+            e.append([a.create_rectangle(e_size*10, 0, 15*e_size , 30, fill='red'),up])
                
     #敌人移动，碰撞，结束, 结束菜单 
         speed = 0.5 + score*0.04     
         for enemy in e:
-            a.move(enemy, 0, speed)    
-            if a.coords(enemy)[3] > 700:
-                a.delete(enemy); e.remove(enemy)
+            a.move(enemy[0], 0, speed)    
+            if a.coords(enemy[0])[3] > 700:
+                a.delete(enemy[0]); e.remove(enemy)
                 #print("game over")
                 if score > high_score : high_score = score
                 paused = True
@@ -402,25 +404,38 @@ while True:
                 continue 
 
     #子弹射敌效果
+        remove_enemy = []
         for zidan in n:
             for enemy2 in e2:
-                try:
-                    if (a.coords(zidan)[0] < a.coords(enemy2)[2] and 
-                        a.coords(zidan)[2] > a.coords(enemy2)[0] and
-                        a.coords(zidan)[1] < a.coords(enemy2)[3] and
-                        a.coords(zidan)[3] > a.coords(enemy2)[1]):
-                        if enemy2 in e:
-                            a.delete(enemy2); e.remove(enemy2)
+                weizhi = enemy[0]  # 敌人的矩形ID
+                try:                                  # 碰撞检测
+                    if (a.coords(zidan)[0] < a.coords(weizhi)[2] and
+                        a.coords(zidan)[2] > a.coords(weizhi)[0] and
+                        a.coords(zidan)[1] < a.coords(weizhi)[3] and
+                        a.coords(zidan)[3] > a.coords(weizhi)[1]):
+                        a.delete(zidan)
                         if zidan in b:    
-                            a.delete(zidan); b.remove(zidan)
-                        score += 1
-                        a.itemconfig(Score,text=f'分数： {score}')
-                        a.itemconfig(High_score,text=f'最高分数： {high_score}')
+                            b.remove(zidan)
+                            enemy2[1] -= hurt
+                            if enemy2[1] <= 0:
+                                print(enemy2[1])
+                                a.delete(enemy2[0])
+                                remove_enemy.append(enemy2)    
+
+                        break    
                 except:
-                    continue            
+                    continue
+        for em in remove_enemy:
+            if em in e:
+                e.remove(em)
+                score += 1
+                a.itemconfig(Score,text=f'分数： {score}')
+                a.itemconfig(High_score,text=f'最高分数： {high_score}') 
+        remove_enemy.clear()                           
 
     else:                        
         pass
 
     root.update()
     time.sleep(0.008)
+        

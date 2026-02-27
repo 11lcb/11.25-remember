@@ -68,19 +68,6 @@ def restart():
 paused = False
 
 #操作控制
-left_1 = False
-up_1 = False 
-right_1 = False
-down_1 = False
-root.bind("<KeyPress-Left>",lambda e:globals().update(left_1 = True))
-root.bind("<KeyRelease-Left>",lambda e:globals().update(left_1 = False))
-root.bind("<KeyPress-Right>",lambda e:globals().update(right_1 = True))
-root.bind("<KeyRelease-Right>",lambda e:globals().update(right_1 = False))
-root.bind("<KeyPress-Up>",lambda e:globals().update(up_1 = True))
-root.bind("<KeyRelease-Up>",lambda e:globals().update(up_1 = False))
-root.bind("<KeyPress-Down>",lambda e:globals().update(down_1 = True))
-root.bind("<KeyRelease-Down>",lambda e:globals().update(down_1 = False))
-        
 def move(event):       
     global zengyi_1, paused ,pause_text ,pause_bg
     if event.keysym == 'p':
@@ -101,10 +88,10 @@ def move(event):
     if not paused:
         colors=[ '#FFB6C1','#87CEEB','#98FB98','#DDA0DD'
                 ,'#FFD700','#F0E68C','#E6E6FA','#B0E0E6']
-        #if event.keysym == 'Left' and a.coords(B)[0] > 0: a.move(B, -15, 0)
-        #elif event.keysym == 'Up' and a.coords(B)[1] > 0: a.move(B,0,-15)
-        #elif event.keysym == 'Right' and a.coords(B)[2] < 600: a.move(B, 15, 0)
-        #elif event.keysym == 'Down' and a.coords(B)[3] <400 : a.move(B,0,15)
+        if event.keysym == 'Left' and a.coords(B)[0] > 0: a.move(B, -15, 0)
+        elif event.keysym == 'Up' and a.coords(B)[1] > 0: a.move(B,0,-15)
+        elif event.keysym == 'Right' and a.coords(B)[2] < 600: a.move(B, 15, 0)
+        elif event.keysym == 'Down' and a.coords(B)[3] <400 : a.move(B,0,15)
         if event.keysym == 'space':
             b.append(a.create_rectangle
                     (a.coords(B)[0]+17, a.coords(B)[1], 
@@ -136,10 +123,6 @@ while True:
 
     #主循环控制移动
         speed_user = 5
-        if left_1 and a.coords(B)[0] >0: a.move(B, -speed_user, 0)
-        if up_1 and a.coords(B)[1] > 0: a.move(B,0,-speed_user)
-        if right_1 and a.coords(B)[2] < 600: a.move(B, speed_user, 0)
-        if down_1 and a.coords(B)[3] <400 : a.move(B,0,speed_user)
     #敌人
         if random.random() < 0.02:                        
             el = random.randint(0,570)
