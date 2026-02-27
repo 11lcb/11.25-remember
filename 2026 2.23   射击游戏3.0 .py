@@ -423,5 +423,5 @@ while True:
         pass
 
     root.update()
-    time.sleep(0.01)
+    time.sleep(0.008)
         
