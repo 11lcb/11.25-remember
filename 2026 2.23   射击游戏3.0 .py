@@ -74,7 +74,7 @@ zengyi_2_text = a.create_text(450 ,40 ,text="", font=("Arial", 12),fill="yellow"
 def time_2(seconds_left): 
     global speed_user
     if seconds_left > 0 :
-        speed_user = 10    
+        speed_user = 8    
         a.itemconfig(zengyi_2_text,text = f"强化移速：{seconds_left}秒")
     else:
         speed_user =5
@@ -82,14 +82,51 @@ def time_2(seconds_left):
 
             #   ③  瞬移
 zengyi_3_active = False
-  
+shunyi_number = 0
+zengyi_3_text = None
+zengyi_3_text = a.create_text(70 ,80 ,text="", font=("Arial", 12),fill="yellow")
+
+zengyi_3_text_2 = a.create_text(120 ,100 ,text="", font=("Arial", 12),fill="yellow")
+zengyi_3_text_3 = a.create_text(80 ,120 ,text="", font=("Arial", 12),fill="yellow")
+
+zengyi_3_time_left_1 = 0
+zengyi_3_time_left_2 = 3
+
+
+def shunyi():
+    global shunyi_number,score,zengyi_3_time_left_1,zengyi_3_time_left_2
+    if shunyi_number >0:
+        if len(e) >0 :
+            for e22 in reversed(e):      
+                enemy_y = a.coords(e22)[3]
+                enemy_x_l = a.coords(e22)[0]
+                enemy_x_r = a.coords(e22)[2]
+                a.coords(B,(enemy_x_r - enemy_x_l)/2 + enemy_x_l-20,
+                            enemy_y + 180,(enemy_x_r - enemy_x_l)/2 + enemy_x_l+20,
+                            enemy_y + 200)
+        else:
+            score += 5
+            a.itemconfig(Score,text=f'分数： {score}')
+            #print("战场无敌人,获得十分")
+            zengyi_3_time_left_2 = 3
+            a.itemconfig(zengyi_3_text_3,state = 'normal', text = "战场无敌人,获得5分")        
+    else:
+        zengyi_3_time_left_1 = 3
+        a.itemconfig(zengyi_3_text_2,state = 'normal',text = f"剩余瞬移次数: {shunyi_number}次,还未获得瞬移")      
+
+    shunyi_number -= 1
+    if shunyi_number < 1: 
+        shunyi_number = 0
+    a.itemconfig(zengyi_3_text,text = f"剩余瞬移次数: {shunyi_number}次")
+    
 
 #---------------------------------------------------------------------------------------------------------------------------------------------
 
 #重新开始
 def restart():
     popup.destroy()
-    global e,b,z,z2,z3,score,speed,B,pause_bg,pause_text,Score,High_score,zengyi_1_text,zengyi_2_text
+    global e,b,z,z2,z3,score,speed,B,pause_bg,pause_text,Score,High_score,zengyi_1_text,zengyi_2_text,shunyi_number,zengyi_3_text
+    global zengyi_3_text_2,zengyi_3_text_3
     e = []  
     b = []   
     z = [] 
@@ -97,6 +134,7 @@ def restart():
     z3 = []
     speed = 0.5
     score = 0
+    shunyi_number = 0
     a.delete("all") 
     B = a.create_rectangle(430, 480, 470, 500, fill='green')
     pause_bg = a.create_rectangle(350,250,550,350,fill='pink',stipple ='gray50',outline='') 
@@ -105,6 +143,9 @@ def restart():
     High_score = a.create_text(150 ,20 ,text="", font=("Arial", 12),fill="red")
     zengyi_1_text = a.create_text(450 ,20 ,text="", font=("Arial", 12),fill="yellow")
     zengyi_2_text = a.create_text(450 ,40 ,text="", font=("Arial", 12),fill="yellow")
+    zengyi_3_text = a.create_text(70 ,80 ,text="", font=("Arial", 12),fill="yellow")
+    zengyi_3_text_2 = a.create_text(120 ,100 ,text="", font=("Arial", 12),fill="yellow")
+    zengyi_3_text_3 = a.create_text(80 ,120 ,text="", font=("Arial", 12),fill="yellow")
 
 #
 paused = False
@@ -128,11 +169,11 @@ def key_press():
     global paused,pause_text ,pause_bg,pause_text_1,pause_bg_1,pause_text_2,pause_bg_2
     paused = not paused
     if paused:
-        print("游戏暂停")
+        #print("游戏暂停")
         pause_bg = a.create_rectangle(350,250,550,350,fill='pink',stipple ='gray50',outline='') 
         pause_text = a.create_text(445 ,300,text = "游戏暂停",fill = "white",font = ("Arial",20))
     else:
-        print("游戏继续")
+        #print("游戏继续")
         if pause_bg:
             a.delete(pause_bg)
             pause_bg = None
@@ -174,11 +215,14 @@ def move(event):
         #elif event.keysym == 'Right' and a.coords(B)[2] < 600: a.move(B, 15, 0)
         #elif event.keysym == 'Down' and a.coords(B)[3] <400 : a.move(B,0,15)
         if event.keysym == 'space':
-            shoot()      
+            shoot()  
+        if event.keysym == "Shift_L":
+            shunyi()        
     else:
         pass                                                  
                 
 root.bind('<Key>', move)
+#root.bind('<Key-Shift_L>',shunyi)
 pause_bg = None
 pause_text = None
 
@@ -225,7 +269,7 @@ while True:
             a.move(enemy, 0, speed)    
             if a.coords(enemy)[3] > 700:
                 a.delete(enemy); e.remove(enemy)
-                print("game over")
+                #print("game over")
                 if score > high_score : high_score = score
                 paused = True
                 popup = tk.Toplevel(root)
@@ -283,8 +327,15 @@ while True:
                 zengyi_2_time_left -= 1
                 time_2(zengyi_2_time_left)
                 if zengyi_2_time_left <= 0 :
-                    zengyi_2_active = False        
-
+                    zengyi_2_active = False 
+            if zengyi_3_time_left_1 > 0 :
+                zengyi_3_time_left_1 -= 1
+                if zengyi_3_time_left_1 <= 0 :
+                    a.itemconfig(zengyi_3_text_2,state = 'hidden',text = f"剩余瞬移次数: {shunyi_number}次,还未获得瞬移")
+            if zengyi_3_time_left_2 > 0 :
+                zengyi_3_time_left_2 -= 1
+                if zengyi_3_time_left_2 <= 0 :     
+                    a.itemconfig(zengyi_3_text_3,state = 'hidden', text = "战场无敌人,获得5分")
         for z11 in Z1:        
             try:    
                 if (a.coords(z11)[0] < a.coords(B)[2] and
@@ -293,7 +344,7 @@ while True:
                     a.coords(z11)[3] > a.coords(B)[1] ):
                     if z1 in z:
                         a.delete(z11); z.remove(z11)
-                        print ("获得增益: 15秒强化子弹")
+                        #print ("获得增益: 15秒强化子弹")
                         zengyi_1_active = True
                         zengyi_1_time_left = 15            
             except:
@@ -319,7 +370,7 @@ while True:
                     a.coords(z222)[3] > a.coords(B)[1] ):
                     if z22 in z2:
                         a.delete(z222); z2.remove(z222)
-                        print ("获得增益: 10秒强化移动速度")
+                        #print ("获得增益: 10秒强化移动速度")
                         zengyi_2_active = True
                         zengyi_2_time_left = 10             
             except:
@@ -343,21 +394,10 @@ while True:
                     a.coords(z333)[3] > a.coords(B)[1] ):
                     if z33 in z3:
                         a.delete(z333); z3.remove(z333)
-                        print ("获得增益: 瞬移")
-                        if len(e) >0:    
-                            for e22 in reversed(e):      
-                                enemy_y = a.coords(e22)[3]
-                                enemy_x_l = a.coords(e22)[0]
-                                enemy_x_r = a.coords(e22)[2]
-                                a.coords(B,(enemy_x_r - enemy_x_l)/2 + enemy_x_l-20,
-                                         enemy_y + 80,(enemy_x_r - enemy_x_l)/2 + enemy_x_l+20,
-                                          enemy_y + 100)
-                                print(enemy_x_l,enemy_x_l,enemy_y,a.coords(B))
-
-                        else:
-                            score += 5
-                            a.itemconfig(Score,text=f'分数： {score}')
-                            print("战场无敌人,获得十分")        
+                        #print ("获得增益: 瞬移")
+                        shunyi_number += 1
+                        a.itemconfig(zengyi_3_text,text = f"剩余瞬移次数: {shunyi_number}次")
+                                
             except:
                 continue 
 
