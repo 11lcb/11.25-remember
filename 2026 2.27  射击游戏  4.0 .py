@@ -308,7 +308,7 @@ while True:
                 a.move(hp_bar, 0, speed)
                 
                 # 敌人超出画布底部，游戏结束
-                
+
                 if a.coords(container)[3] > 700:
                     # 删除敌人所有元素（容器+血条）
                     a.delete(container)
@@ -408,40 +408,31 @@ while True:
                 continue 
 
     # 增益2：移速增加
-        if random.random() < 0.0015:                             
-            zengyi_2_x = random.randint(1, 870)
-            z2.append(a.create_oval(zengyi_2_x, 0, zengyi_2_x+20, 30, fill="#9A45C1"))
-
-        # 增益2移动
-        for idx, z22 in enumerate(Z2):                                         
-            try:
-                zengyi_2_math = random.randint(0, 360)
-                zengyi_2_move = 7 * math.sin(zengyi_2_math)
-                a.move(z22, zengyi_2_move, 2)
-                if a.coords(z22)[1] > 700:
-                    a.delete(z22)
-                    if z22 in z2:
-                        z2.remove(z22)
-            except:
-                if z22 in z2:
-                    z2.remove(z22)
-                continue
+        if random.random() < 0.0015:   
+            zengyi_2_x= random.randint(1,870)
+            zengyi_2_math = random.randint(0,360)
+            z2.append(a.create_oval(zengyi_2_x, +0, zengyi_2_x+20,+30, fill="#9A45C1"))
+ 
+        # 增益移动
+        for z22 in Z2:                                          
+            zengyi_2_move = 0 + 3*math.sin(zengyi_2_math)
+            a.move(z22, zengyi_2_move, 2)
+            if a.coords(z22)[1] > 700:
+                a.delete(z22); z2.remove(z22)
 
         # 拾取增益2
-        for z222 in Z2:                                         
+        for z222 in Z2:
             try:    
                 if (a.coords(z222)[0] < a.coords(B)[2] and
                     a.coords(z222)[2] > a.coords(B)[0] and
                     a.coords(z222)[1] < a.coords(B)[3] and
                     a.coords(z222)[3] > a.coords(B)[1] ):
-                    a.delete(z222)
-                    if z222 in z2:
-                        z2.remove(z222)
-                    zengyi_2_active = True
-                    zengyi_2_time_left = 10             
+                    if z22 in z2:
+                        a.delete(z222); z2.remove(z222)
+                        #print ("获得增益: 10秒强化移动速度")
+                        zengyi_2_active = True
+                        zengyi_2_time_left = 10             
             except:
-                if z222 in z2:
-                    z2.remove(z222)
                 continue 
 
     # 增益3：瞬移

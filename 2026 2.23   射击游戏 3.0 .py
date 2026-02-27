@@ -33,6 +33,8 @@ def menu():
     menu_canvas.create_text(300,100,text="shoot game",fill = "black",font=("Arial",30))
     start_button = tk.Button(menu_canvas,text ="start",command =start_game)
     start_button.place(x=250 ,y=200)
+def start_game():
+    pass    
 
 
 B = a.create_rectangle(430, 480, 470, 500, fill='green')
