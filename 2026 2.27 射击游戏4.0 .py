@@ -20,7 +20,7 @@ close_button = tk.Button(control_frame, text="不玩了", command=lambda:os._exi
                          bg="black", fg="white", width=10)
 close_button.pack(side=tk.RIGHT, padx=5, pady=2)
 
-score_label = tk.Label(control_frame, text=f"道具： ①蓝色：子弹强化 ②紫色：移速增加 ③青色：左shift 瞬移", font=("Arial", 12))
+score_label = tk.Label(control_frame, text=f"道具： ①蓝色：子弹强化 ②紫色：移速增加", font=("Arial", 12))
 score_label.pack(side=tk.LEFT, padx=5)
 
 a = tk.Canvas(main_frame, width=900, height=700, bg='black')
@@ -237,10 +237,8 @@ pause_bg = a.create_rectangle(190,100,430,220,fill='pink',stipple ='gray50',outl
 pause_text = a.create_text(310 ,160,text =f" 1.↑↓←→ 控制移动 \n 2.‘P’暂停,开始 \n 3.空格射击"
                             ,fill = "white",font = ("Arial",20))
 
-pause_bg_2 = a.create_rectangle(50,270,700,430,fill='pink',stipple ='gray50',outline='')
-pause_text_2 = a.create_text(375 ,350,text =f" 1. 蓝色：强化子弹，持续15秒\n" 
-                    " 2. 紫色：增强移速，持续十秒 \n "
-                    "3. 青色：拾取后左shift，瞬移到最下方敌人的下面\n     如果地图中无敌人，消耗一次传送增加5分"
+pause_bg_2 = a.create_rectangle(190,290,630,410,fill='pink',stipple ='gray50',outline='')
+pause_text_2 = a.create_text(375 ,350,text =f" 1.蓝色：强化子弹，持续15秒\n 2.紫色：增强移速，持续十秒 \n 3.瞬移到最下方敌人的下面"
                             ,fill = "white",font = ("Arial",20))
 key_press
 
@@ -426,4 +424,3 @@ while True:
 
     root.update()
     time.sleep(0.008)
-        
