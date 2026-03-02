@@ -52,8 +52,8 @@ def load_frames(image_paths, fallback_color, size):
 class Player(pygame.sprite.Sprite):
     def __init__(self, x, y):
         super().__init__()
-        self.idle_frames = load_frames(["player_idle.png"], GREEN, (30, 30))
-        self.run_frames = load_frames(["player_run1.png", "player_run2.png"], GREEN, (30, 30))
+        self.idle_frames = load_frames(["站立.jpg"], GREEN, (40, 40))
+        self.run_frames = load_frames(["跑步1.jpg", "跑步2.jpg"], GREEN, (40, 40))
         
         self.frames = self.idle_frames
         self.current_frame = 0
