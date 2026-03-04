@@ -134,7 +134,6 @@ class MeleeSwingEffect(pygame.sprite.Sprite):
             w_img = self.weapon_img
             if self.is_skill:
                 w_img = w_img.copy()
-                # 修复贴图框：改用 BLEND_RGB_MULT 安全渲染
                 w_img.fill((200, 150, 255), special_flags=pygame.BLEND_RGB_MULT) 
                 
             if math.cos(current_angle) < 0: w_img = pygame.transform.flip(w_img, False, True)
@@ -193,6 +192,7 @@ class BossAoeEffect(pygame.sprite.Sprite):
         self.timer = 0
         
         # 🖼️👉 【替换贴图：BOSS范围灼烧/毒液 区域底图】
+        self.has_image = os.path.exists("boss_aoe.png")
         self.image_surf = load_frames(["boss_aoe.png"], (0,0,0,0), (radius*2, radius*2), "circle")[0]
 
     def update(self):
@@ -211,7 +211,8 @@ class BossAoeEffect(pygame.sprite.Sprite):
             pygame.draw.circle(s, (255, 0, 0, 200), (self.radius, self.radius), self.radius, 2)
         else:
             alpha = 180 if self.lifetime - self.timer > 60 else int(180 * ((self.lifetime - self.timer) / 60))
-            if self.image_surf.get_alpha() != 0:
+            # 【修复】如果没有本地贴图，强制绘制备用几何图形，保证在地上留存 10 秒
+            if self.has_image:
                 self.image_surf.set_alpha(alpha)
                 s.blit(self.image_surf, (0,0))
             else:
@@ -243,7 +244,7 @@ class Player(pygame.sprite.Sprite):
         self.bonus_ranged_dmg = 0
         self.bonus_melee_dmg = 0
         self.bonus_range_mult = 1.0  
-        self.bonus_cd_reduction = 0
+        self.bonus_cd_reduction = 0 # 现在的减CD按百分比算！1级10%
         self.has_revive = False     
         self.just_revived = False   
         
@@ -318,7 +319,10 @@ class Player(pygame.sprite.Sprite):
         if not self.weapons: return []
         weapon = self.weapons[self.current_weapon]
         
-        actual_cd = max(50, weapon["cd"] - self.bonus_cd_reduction)
+        # 【修复】攻速计算改为百分比递减机制，彻底解决近战吃不到增益的问题
+        cd_multiplier = max(0.1, 1.0 - (self.bonus_cd_reduction / 100.0))
+        actual_cd = int(weapon["cd"] * cd_multiplier)
+        
         if pygame.time.get_ticks() - self.last_shoot_time < actual_cd: return []
         self.last_shoot_time = pygame.time.get_ticks()
         
@@ -333,7 +337,6 @@ class Player(pygame.sprite.Sprite):
         is_skill = self.skill_timer > 0
         attacks = []
         
-        # 【修复】实现双持枪口位置 (互相平行靠拢)
         perp_angle = angle + math.pi/2
         base_shoot_x = self.rect.centerx + math.cos(angle) * 20
         base_shoot_y = self.rect.centery + math.sin(angle) * 20
@@ -386,15 +389,13 @@ class Player(pygame.sprite.Sprite):
             
         rotated_img = pygame.transform.rotate(weapon_img, degree)
         
-        # 武器朝前突出的距离
         forward_offset = 20
         base_wx = wx - camera_x + math.cos(angle) * forward_offset
         base_wy = wy - camera_y + math.sin(angle) * forward_offset
         
         if self.skill_timer > 0:
-            # 【修复】双持效果：两把武器互相平行贴近身体
             perp_angle = angle + math.pi/2
-            side_offset = 10 # 武器间的间距
+            side_offset = 10 
             
             w_x = base_wx + math.cos(perp_angle) * (side_offset/2) - 4
             w_y = base_wy + math.sin(perp_angle) * (side_offset/2) 
@@ -402,13 +403,11 @@ class Player(pygame.sprite.Sprite):
             c_y = base_wy - math.sin(perp_angle) * (side_offset/2) + 7
             
             clone_img = rotated_img.copy()
-            # 安全附上紫色滤镜，不会产生黑边底框
             clone_img.fill((200, 150, 255), special_flags=pygame.BLEND_RGB_MULT) 
             
             surface.blit(clone_img, clone_img.get_rect(center=(c_x, c_y)))
             surface.blit(rotated_img, rotated_img.get_rect(center=(w_x, w_y)))
         else:
-            # 单持居中
             surface.blit(rotated_img, rotated_img.get_rect(center=(base_wx, base_wy)))
 
 # ================= 物品与箱子系统 =================
@@ -530,6 +529,17 @@ class Boss(Enemy):
         
         self.dash_warning_timer = 0
         self.dash_target = None
+        
+        # 【修改】阶梯式难度成长机制！
+        self.available_skills = ["dash"]
+        if floor >= 10: self.available_skills.append("aoe")
+        if floor >= 20: self.available_skills.append("vision")
+        if floor >= 30: self.available_skills.append("silence")
+        
+        # 阶梯式子弹：普通, 弹射, 毒液
+        self.bullet_weights = [1.0, 0.0, 0.0]
+        if floor >= 15: self.bullet_weights = [0.6, 0.4, 0.0]
+        if floor >= 25: self.bullet_weights = [0.4, 0.3, 0.3]
 
     def update(self, px, py, enemy_bullets_group, effects_group, player, crates_group):
         if self.dash_warning_timer > 0:
@@ -552,7 +562,8 @@ class Boss(Enemy):
         if self.shoot_timer >= self.shoot_cd:
             self.shoot_timer = 0
             angle = math.atan2(py - self.rect.centery, px - self.rect.centerx)
-            b_type = random.choices([0, 1, 2], weights=[0.6, 0.2, 0.2])[0]
+            # 根据楼层释放更恐怖的子弹类型
+            b_type = random.choices([0, 1, 2], weights=self.bullet_weights)[0]
             for i in range(-3, 4):
                 if i % 2 == 0: 
                     enemy_bullets_group.add(EnemyBullet(self.rect.centerx, self.rect.centery, angle + i * 0.15, speed=6, damage=self.damage, b_type=b_type))
@@ -560,15 +571,18 @@ class Boss(Enemy):
         self.skill_timer += 1
         if self.skill_timer >= self.skill_cd:
             self.skill_timer = 0
-            skill_type = random.choice(["dash", "aoe", "debuff"])
+            # 根据楼层加入新机制
+            skill_type = random.choice(self.available_skills)
+            
             if skill_type == "dash":
                 self.dash_warning_timer = 60 
                 self.dash_target = (px, py)
             elif skill_type == "aoe": 
                 effects_group.add(BossAoeEffect(player.rect.centerx, player.rect.centery, self.aoe_radius, self.aoe_damage, player))
-            elif skill_type == "debuff":
-                if random.choice(["vision", "buff"]) == "vision": debuffs["vision_reduce"] = 300
-                else: debuffs["buff_disable"] = 300
+            elif skill_type == "vision":
+                debuffs["vision_reduce"] = 300
+            elif skill_type == "silence":
+                debuffs["buff_disable"] = 300
 
     def draw_hp(self, surface, camera_x, camera_y):
         pygame.draw.rect(surface, BLACK, (SCREEN_WIDTH//2 - 250, 20, 500, 25))
@@ -803,6 +817,13 @@ def draw_minimap(screen, player):
     px, py = int(player.rect.centerx // TILE_SIZE), int(player.rect.centery // TILE_SIZE)
     if 0 <= px < MAP_COLS and 0 <= py < MAP_ROWS: pygame.draw.rect(screen, GREEN, (start_x + px*3, start_y + py*3, 4, 4))
 
+# 【更新】专门处理金币随关卡增加的函数
+def spawn_coins(x, y, is_boss, floor, coins_group):
+    # Boss爆大量金币(每层增加)，小怪随着关卡上升也会多掉
+    amount = (15 + floor * 3) if is_boss else (1 + floor // 3)
+    for _ in range(amount):
+        coins_group.add(Coin(x + random.randint(-20, 20), y + random.randint(-20, 20)))
+
 # ==========================================
 # 6. 主程序
 # ==========================================
@@ -842,8 +863,8 @@ def main():
             {"id": "melee_range", "name": "提升扇形范围", "cost": 15, "level": 0, "max": 99, "cost_up": 20}, 
             {"id": "ranged_dmg", "name": "提升远程伤害", "cost": 10, "level": 0, "max": 99, "cost_up": 5},
             {"id": "melee_dmg", "name": "提升近战伤害", "cost": 15, "level": 0, "max": 99, "cost_up": 8},
-            {"id": "fir", "name": "提升射速冷却", "cost": 15, "level": 0, "max": 3, "cost_up": 10},
-            {"id": "spd", "name": "提升移动速度", "cost": 15, "level": 0, "max": 3, "cost_up": 10},
+            {"id": "fir", "name": "提升射速冷却", "cost": 15, "level": 0, "max": 7, "cost_up": 15},
+            {"id": "spd", "name": "提升移动速度", "cost": 15, "level": 0, "max": 5, "cost_up": 10},
             {"id": "hp", "name": "恢复1点生命", "cost": 5, "level": 0, "max": 999, "cost_up": 0},
             {"id": "explosion", "name": "提升爆炸伤害", "cost": 5, "level": 0, "max": 99, "cost_up": 10}
         ]
@@ -924,7 +945,7 @@ def main():
                             elif item['id'] == 'melee_dmg': player.bonus_melee_dmg += 3
                             elif item['id'] == 'melee_range': player.bonus_range_mult *= 1.2
                             elif item['id'] == 'spd': player.speed += 1
-                            elif item['id'] == 'fir': player.bonus_cd_reduction += 40
+                            elif item['id'] == 'fir': player.bonus_cd_reduction += 10 # 每级减少10%冷却
                             elif item['id'] == 'hp': player.hp = min(player.max_hp, player.hp + 1); item['level'] -= 1
                             elif item['id'] == 'shield_max': player.max_shield += 1
                             elif item['id'] == 'explosion' and player.has_explosion: player.explosion_damage += 10
@@ -1090,7 +1111,7 @@ def main():
                             effects.add(DamageText(enemy.rect.centerx, enemy.rect.top, dmg))
                             if enemy.hp <= 0:
                                 enemy.explode(enemies, player, effects); enemy.kill()
-                                coins_group.add(Coin(enemy.rect.centerx, enemy.rect.centery))
+                                spawn_coins(enemy.rect.centerx, enemy.rect.centery, isinstance(enemy, Boss), current_floor, coins_group)
                                 
                     for crate in crates:
                         if hit_target(crate, atk_data):
@@ -1145,9 +1166,7 @@ def main():
                         effects.add(DamageText(enemy.rect.centerx, enemy.rect.top, 20, custom_color=(255, 100, 0))) 
                         if enemy.hp <= 0:
                             enemy.explode(enemies, player, effects); enemy.kill()
-                            coins_group.add(Coin(enemy.rect.centerx, enemy.rect.centery))
-                            if isinstance(enemy, Boss):
-                                for _ in range(15): coins_group.add(Coin(enemy.rect.centerx+random.randint(-40,40), enemy.rect.centery+random.randint(-40,40)))
+                            spawn_coins(enemy.rect.centerx, enemy.rect.centery, isinstance(enemy, Boss), current_floor, coins_group)
                 
                 if enemy.alive():
                     if isinstance(enemy, Boss): 
@@ -1165,9 +1184,7 @@ def main():
                     effects.add(DamageText(enemy.rect.centerx, enemy.rect.top, b.damage))
                 if enemy.hp <= 0:
                     enemy.explode(enemies, player, effects); enemy.kill()
-                    coins_group.add(Coin(enemy.rect.centerx, enemy.rect.centery))
-                    if isinstance(enemy, Boss):
-                        for _ in range(15): coins_group.add(Coin(enemy.rect.centerx+random.randint(-40,40), enemy.rect.centery+random.randint(-40,40)))
+                    spawn_coins(enemy.rect.centerx, enemy.rect.centery, isinstance(enemy, Boss), current_floor, coins_group)
             
             hits_crates = pygame.sprite.groupcollide(crates, bullets, False, True)
             for crate, bullet_list in hits_crates.items():
@@ -1200,7 +1217,6 @@ def main():
         if game_state in ["PLAYING", "SHOP", "TALENT", "PORTAL_CONFIRM", "GAMEOVER_ANIM", "GAMEOVER"]:
             screen.fill(BLACK)
             
-            # 解决全屏右下角黑边延迟
             start_c = max(0, int(camera_x // TILE_SIZE) - 1)
             end_c = min(MAP_COLS, int((camera_x + SCREEN_WIDTH) // TILE_SIZE) + 2)
             start_r = max(0, int(camera_y // TILE_SIZE) - 1)
@@ -1216,10 +1232,15 @@ def main():
                         pygame.draw.rect(screen, RED, (draw_x, draw_y, TILE_SIZE, TILE_SIZE), 2)
                     elif val == 3: screen.blit(wall_inner_img, (draw_x, draw_y))
 
+            # 【修复】致盲遮罩彻底修复：利用colorkey做出聚光灯效果，外部压黑！
             if debuffs["vision_reduce"] > 0:
                 vs = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
-                vs.fill(BLACK); pygame.draw.circle(vs, (0,0,0,0), (SCREEN_WIDTH//2, SCREEN_HEIGHT//2), vision_radius)
-                vs.set_colorkey((0,0,0)); screen.blit(vs, (0,0))
+                vs.fill((0, 0, 0)) # 填充纯黑
+                # 画一个紫色圆作为视野透明区（用紫色是因为正常游戏很难用到这纯紫色）
+                pygame.draw.circle(vs, (255, 0, 255), (SCREEN_WIDTH//2, SCREEN_HEIGHT//2), vision_radius)
+                vs.set_colorkey((255, 0, 255)) # 将紫色扣成透明洞
+                vs.set_alpha(245) # 极高的不透明度，让外面几乎全黑
+                screen.blit(vs, (0,0))
 
             for s in spawners: pygame.draw.circle(screen, RED, (s.x-camera_x, s.y-camera_y), 20, 2)
             
