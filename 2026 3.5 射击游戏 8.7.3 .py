@@ -37,6 +37,7 @@ TILE_SIZE = 60
 MAP_COLS, MAP_ROWS = 80, 80
 game_map, room_list = [], []
 explored_map = []  
+tile_variant_map = [] # 记录每个格子使用哪一张随机贴图
 
 font_name = "SimHei" if "simhei" in pygame.font.get_fonts() else "Arial"
 font_base = pygame.font.SysFont(font_name, 18)
@@ -68,7 +69,7 @@ def load_frames(image_paths, fallback_color, size, shape="rect"):
     return frames
 
 # ==========================================
-# 3. 特效与沙袋实体
+# 3. 特效与实体
 # ==========================================
 class DamageText(pygame.sprite.Sprite):
     def __init__(self, x, y, damage_val, is_heal=False, custom_color=None, is_text=False):
@@ -93,23 +94,29 @@ class DamageText(pygame.sprite.Sprite):
         surface.blit(txt_surf, (self.x - camera_x - txt_surf.get_width()//2, self.y - camera_y))
 
 class ExplosionEffect(pygame.sprite.Sprite):
-    def __init__(self, x, y, damage):
+    def __init__(self, x, y, damage, radius=None):
         super().__init__()
         self.x, self.y = x, y
-        self.max_radius = damage * 1.5
-        self.current_radius, self.alpha, self.lifetime, self.timer = 0, 255, 30, 0
+        self.max_radius = radius if radius else damage * 1.5
+        size = (int(self.max_radius * 2), int(self.max_radius * 2))
+        
+        # 🖼️👉 【替换贴图：爆炸的序列帧动画】
+        self.frames = load_frames(["爆炸1.png", "爆炸2.png", "爆炸3.png", "爆炸4.png"], (255, 100, 0, 150), size, "circle")
+        self.lifetime = 30
+        self.timer = 0
 
     def update(self):
         self.timer += 1
-        self.current_radius = self.max_radius * (self.timer / self.lifetime)
-        self.alpha = 255 * (1 - self.timer / self.lifetime)
-        if self.timer >= self.lifetime: self.kill()
+        if self.timer >= self.lifetime: 
+            self.kill()
 
     def draw(self, surface, camera_x, camera_y):
-        s = pygame.Surface((self.max_radius*2, self.max_radius*2), pygame.SRCALPHA)
-        pygame.draw.circle(s, (255, 200, 0, int(self.alpha)), (self.max_radius, self.max_radius), int(self.current_radius), 2)
-        pygame.draw.circle(s, (255, 100, 0, int(self.alpha/2)), (self.max_radius, self.max_radius), int(self.current_radius/2))
-        surface.blit(s, (self.x - self.max_radius - camera_x, self.y - self.max_radius - camera_y))
+        if not self.frames: return
+        frame_idx = min(int((self.timer / self.lifetime) * len(self.frames)), len(self.frames) - 1)
+        img = self.frames[frame_idx]
+        draw_x = self.x - self.max_radius - camera_x
+        draw_y = self.y - self.max_radius - camera_y
+        surface.blit(img, (draw_x, draw_y))
 
 class MeleeSwingEffect(pygame.sprite.Sprite):
     def __init__(self, start_x, start_y, attack_range, angle, weapon_img, is_skill_active):
@@ -161,7 +168,7 @@ class FlameEffect(pygame.sprite.Sprite):
         self.is_skill = is_skill
         self.angle_left = angle - math.pi/4
         self.angle_right = angle + math.pi/4
-        # 🖼️👉 【替换贴图：火焰喷射枪动画 (4帧)】
+        # 🖼️👉 【替换贴图：火焰枪喷出的火焰特效帧】
         self.frames = load_frames(["flame1.png", "flame2.png", "flame3.png", "flame4.png"], (255, 100, 100, 0), (self.range*2, self.range*2), "rect")
 
     def update(self):
@@ -197,7 +204,6 @@ class BossAoeEffect(pygame.sprite.Sprite):
         self.warning_time = 60    
         self.lifetime = 1260   
         self.timer = 0
-        # 🖼️👉 【替换贴图：BOSS范围灼烧/毒液 区域底图】
         self.has_image = os.path.exists(get_res_path("boss_aoe.png"))
         self.image_surf = load_frames(["boss_aoe.png"], (0,0,0,0), (radius*2, radius*2), "circle")[0]
 
@@ -225,28 +231,115 @@ class BossAoeEffect(pygame.sprite.Sprite):
                 pygame.draw.circle(s, (255, 200, 0, alpha//2), (self.radius, self.radius), self.radius - 10)
         surface.blit(s, (draw_x - self.radius, draw_y - self.radius))
 
-# 【新增】训练营沙袋实体
 class Sandbag(pygame.sprite.Sprite):
     def __init__(self, x, y):
         super().__init__()
-        # 🖼️👉 【替换贴图：沙袋正常状态】
+        # 🖼️👉 【替换贴图：训练营木桩沙袋 (待机/受击)】
         self.idle_img = load_frames(["sandbag_idle.png"], ORANGE, (60, 90), "rect")[0]
-        # 🖼️👉 【替换贴图：沙袋受击状态】
         self.hit_img = load_frames(["sandbag_hit.png"], RED, (60, 90), "rect")[0]
         self.image = self.idle_img
         self.rect = self.image.get_rect(center=(x, y))
         self.hit_timer = 0
         
-    def take_damage(self, amount, effects_group):
+        self.total_damage = 0
+        self.start_time = 0
+        self.last_hit_time = 0
+        
+    def take_damage(self, amount, effects_group=None, **kwargs): 
         self.hit_timer = 8
         self.image = self.hit_img
-        effects_group.add(DamageText(self.rect.centerx, self.rect.top, amount))
+        
+        current_time = pygame.time.get_ticks()
+        if current_time - self.last_hit_time > 2000: # 超过2秒未受击自动重置
+            self.total_damage = 0
+            self.start_time = current_time
+        self.total_damage += amount
+        self.last_hit_time = current_time
+
+        if effects_group is not None:
+            effects_group.add(DamageText(self.rect.centerx, self.rect.top, amount))
         
     def update(self):
         if self.hit_timer > 0:
             self.hit_timer -= 1
             if self.hit_timer <= 0:
                 self.image = self.idle_img
+                
+    def draw_dps(self, surface, camera_x, camera_y):
+        if self.last_hit_time > 0 and pygame.time.get_ticks() - self.last_hit_time <= 2000:
+            time_active = max((self.last_hit_time - self.start_time) / 1000.0, 0.1) 
+            dps = self.total_damage / time_active
+            
+            bg_rect = pygame.Rect(self.rect.centerx - camera_x - 80, self.rect.top - camera_y - 80, 160, 65)
+            pygame.draw.rect(surface, (30, 30, 30, 200), bg_rect, border_radius=5)
+            pygame.draw.rect(surface, ORANGE, bg_rect, 2, border_radius=5)
+            
+            txt1 = font_base.render(f"耗时: {time_active:.1f}s", True, WHITE)
+            txt2 = font_base.render(f"总伤: {int(self.total_damage)}", True, YELLOW)
+            txt3 = font_base.render(f"秒伤: {int(dps)}", True, RED)
+            
+            surface.blit(txt1, (bg_rect.x + 5, bg_rect.y + 5))
+            surface.blit(txt2, (bg_rect.x + 5, bg_rect.y + 25))
+            surface.blit(txt3, (bg_rect.x + 5, bg_rect.y + 45))
+
+# ================= 炸弹逻辑分离系统 =================
+class ThrownGrenade(pygame.sprite.Sprite):
+    def __init__(self, x, y, tx, ty, damage, base_damage, player, enemies, effects, crates=None, items=None, w_imgs=None):
+        super().__init__()
+        self.image = load_frames(["grenade.png"], DARK_GREEN, (15, 15), "circle")[0]
+        self.rect = self.image.get_rect(center=(x, y))
+        self.tx, self.ty = tx, ty
+        
+        self.damage = int(damage)
+        self.base_damage = base_damage
+        
+        self.player = player
+        self.enemies = enemies
+        self.effects = effects
+        self.crates = crates
+        self.items = items
+        self.w_imgs = w_imgs
+        self.speed = 12
+        
+        angle = math.atan2(ty - y, tx - x)
+        self.vx = math.cos(angle) * self.speed
+        self.vy = math.sin(angle) * self.speed
+        self.travel_dist = math.hypot(tx - x, ty - y)
+        self.current_dist = 0
+
+    def update(self):
+        self.rect.x += self.vx
+        self.rect.y += self.vy
+        self.current_dist += self.speed
+        
+        if self.current_dist >= self.travel_dist or is_wall(self.rect.centerx, self.rect.centery):
+            self.explode()
+            self.kill()
+
+    def explode(self):
+        base_radius = int((50 + self.base_damage * 0.5) * self.player.explosion_radius_mult) 
+        if getattr(self.player, "has_large_explosion", False):
+            base_radius *= 2
+            
+        self.effects.add(ExplosionEffect(self.rect.centerx, self.rect.centery, self.damage, base_radius))
+        
+        check_x = int(self.rect.centerx - base_radius)
+        check_y = int(self.rect.centery - base_radius)
+        size_r = int(base_radius * 2)
+        
+        rect = pygame.Rect(check_x, check_y, size_r, size_r)
+        
+        for enemy in self.enemies:
+            if rect.colliderect(enemy.rect):
+                if math.hypot(enemy.rect.centerx - self.rect.centerx, enemy.rect.centery - self.rect.centery) <= base_radius:
+                    enemy.take_damage(self.damage)
+                    self.effects.add(DamageText(enemy.rect.centerx, enemy.rect.top, self.damage))
+                    
+        if self.crates is not None:
+            for crate in self.crates:
+                if rect.colliderect(crate.rect):
+                    if math.hypot(crate.rect.centerx - self.rect.centerx, crate.rect.centery - self.rect.centery) <= base_radius:
+                        crate.take_damage(self.damage, self.items, self.effects, self.w_imgs)
 
 # ==========================================
 # 4. 游戏核心类 (Player)
@@ -254,11 +347,8 @@ class Sandbag(pygame.sprite.Sprite):
 class Player(pygame.sprite.Sprite):
     def __init__(self, x, y):
         super().__init__()
-        # 🖼️👉 【替换贴图：玩家角色站立】 
         self.idle_frames = load_frames(["角色站立.png"], GREEN, (60, 60), "circle")
-        # 🖼️👉 【替换贴图：玩家角色死亡】 
         self.death_frames = load_frames(["player_death.png"], GRAY, (60, 60), "rect")
-        # 🖼️👉 【替换贴图：玩家角色跑步动画】 
         self.run_frames = load_frames(["角色跑步1.png","角色站立.png", "角色跑步2.png"], GREEN, (60, 60), "circle")
         
         self.frames, self.current_frame, self.image = self.idle_frames, 0, self.idle_frames[0]
@@ -269,25 +359,29 @@ class Player(pygame.sprite.Sprite):
         self.max_shield, self.shield, self.last_shield_damage = 2, 2, 0
         self.poison_timer = 0 
         
-        self.bonus_ranged_dmg = 0
-        self.bonus_melee_dmg = 0
+        self.bonus_ranged_mult = 1.0  
+        self.bonus_melee_mult = 1.0  
+        self.bonus_explosion_mult = 1.0  
         self.bonus_range_mult = 1.0  
         self.bonus_cd_reduction = 0 
         self.bonus_scatter = 0         
         self.charge_speed_mult = 1.0   
         self.has_revive = False     
         self.just_revived = False   
+        self.has_large_explosion = False 
         
         self.weapon_slots, self.current_weapon = 2, 0
         self.weapons = [
             {"type": "pistol", "name": "普通手枪", "damage": 25, "cd": 300},
-            {"type": "melee", "name": "近战小刀", "damage": 30, "range": 50, "cd": 400}
+            {"type": "melee", "name": "近战小刀", "damage": 30, "range": 80, "cd": 400}
         ]
         
         self.skill_duration_max, self.skill_cd_max = 7 * 60, 10 * 60       
         self.skill_timer, self.skill_cd = 0, 0
         self.has_bounce, self.has_magnet, self.has_explosion = False, False, False
-        self.explosion_damage, self.explosion_radius = 20, 50
+        
+        self.explosion_damage_base = 20  
+        self.explosion_radius_mult = 1.0 
         
         self.last_shoot_time = 0
         self.melee_swing_timer = 0
@@ -354,16 +448,19 @@ class Player(pygame.sprite.Sprite):
             self.current_weapon = (self.current_weapon + direction) % len(self.weapons)
             self.charge_start_time = 0 
 
-    def process_attack(self, mouse_held, mx, my, camera_x, camera_y, bullets_group, enemy_bullets_group, effects_group, global_weapon_images, enemies_group):
+    def process_attack(self, mouse_held, mx, my, camera_x, camera_y, bullets_group, enemy_bullets_group, effects_group, global_weapon_images, enemies_group, grenades_group, crates_group=None, items_group=None):
         if not self.weapons: return []
         weapon = self.weapons[self.current_weapon]
         
         cd_multiplier = max(0.1, 1.0 - (self.bonus_cd_reduction / 100.0))
         actual_cd = int(weapon["cd"] * cd_multiplier)
         
-        actual_dmg = weapon["damage"]
-        if weapon["type"] in ["pistol", "flamethrower", "bow"]: actual_dmg += self.bonus_ranged_dmg
-        elif weapon["type"] == "melee": actual_dmg += self.bonus_melee_dmg
+        actual_base_dmg = weapon["damage"] 
+        actual_dmg = actual_base_dmg       
+        
+        if weapon["type"] in ["pistol", "bow"]: actual_dmg = int(actual_dmg * self.bonus_ranged_mult)
+        elif weapon["type"] == "melee": actual_dmg = int(actual_dmg * self.bonus_melee_mult)
+        elif weapon["type"] == "grenade": actual_dmg = int(actual_dmg * self.bonus_explosion_mult)
         
         actual_range = weapon.get("range", 0) * self.bonus_range_mult
         
@@ -416,6 +513,18 @@ class Player(pygame.sprite.Sprite):
         if current_time - self.last_shoot_time < actual_cd: return []
         self.last_shoot_time = current_time
         
+        if weapon["type"] == "grenade":
+            dist = math.hypot(target_x - shoot_x, target_y - shoot_y)
+            if dist > 500:
+                target_x = shoot_x + (target_x - shoot_x) * 500 / dist
+                target_y = shoot_y + (target_y - shoot_y) * 500 / dist
+            
+            grenades_group.add(ThrownGrenade(shoot_x, shoot_y, target_x, target_y, actual_dmg, actual_base_dmg, self, enemies_group, effects_group, crates_group, items_group, global_weapon_images))
+            
+            if is_skill:
+                grenades_group.add(ThrownGrenade(clone_x, clone_y, target_x + random.randint(-50,50), target_y + random.randint(-50,50), actual_dmg, actual_base_dmg, self, enemies_group, effects_group, crates_group, items_group, global_weapon_images))
+            return []
+
         if weapon["type"] == "pistol":
             bullets_group.add(Bullet(shoot_x, shoot_y, angle, actual_dmg, self, False))
             if is_skill:
@@ -507,8 +616,8 @@ class MagicArrow(pygame.sprite.Sprite):
         self.player, self.enemies = player, enemies_group
         self.bounces = 1 if player.has_bounce and debuffs["buff_disable"] == 0 else 0
         
-        # 🖼️👉 【替换贴图：魔法追踪箭】
         color = PURPLE if is_skill else (0, 255, 255)
+        # 🖼️👉 【替换贴图：魔法弓射出的魔法箭】
         self.original_img = load_frames(["magic_arrow.png"], color, (25, 8), "rect")[0]
         self.image = pygame.transform.rotate(self.original_img, math.degrees(-self.angle))
         self.rect = self.image.get_rect(center=(x, y))
@@ -540,15 +649,18 @@ class MagicArrow(pygame.sprite.Sprite):
 
 # ================= 物品与箱子系统 =================
 class GroundItem(pygame.sprite.Sprite):
-    def __init__(self, x, y, item_type, weapon_data=None):
+    def __init__(self, x, y, item_type, weapon_data=None, weapon_img=None):
         super().__init__()
         self.item_type, self.weapon_data = item_type, weapon_data
         if item_type == "potion":
-            # 🖼️👉 【替换贴图：掉落的补血饮料瓶】
-            self.image = load_frames(["饮料瓶.png"], (255,105,180), (65,65), "circle")[0]
+            self.image = load_frames(["饮料瓶.png"], (255,105,180), (60,60), "circle")[0]
         else:
-            # 🖼️👉 【替换贴图：掉落的武器实体图】
-            self.image = load_frames(["weapon_drop.png"], GRAY, (30,30), "rect")[0]
+            if weapon_img:
+                new_w = int(max(20, weapon_img.get_width() * 1.1))
+                new_h = int(max(10, weapon_img.get_height() * 1.1))
+                self.image = pygame.transform.scale(weapon_img, (new_w, new_h))
+            else:
+                self.image = load_frames(["weapon_drop.png"], GRAY, (30,30), "rect")[0]
         self.rect = self.image.get_rect(center=(x, y))
 
     def draw_prompt(self, surface, camera_x, camera_y):
@@ -559,12 +671,13 @@ class GroundItem(pygame.sprite.Sprite):
 class Crate(pygame.sprite.Sprite):
     def __init__(self, x, y):
         super().__init__()
-        # 🖼️👉 【替换贴图：可打破的木箱子】
-        self.image = load_frames(["箱子.png"], (160, 100, 50), (75, 75), "rect")[0]
-        self.rect = self.image.get_rect(center=(x, y))
+        self.image = load_frames(["箱子.png"], (160, 100, 50), (80, 80), "rect")[0]
+        self.rect = pygame.Rect(0, 0, 46, 46)
+        self.rect.center = (x, y)
         self.hp = 30
 
-    def take_damage(self, amount, items_group, effects_group):
+    def take_damage(self, amount, items_group, effects_group, global_weapon_images):
+        if self.hp <= 0: return 
         self.hp -= int(amount)
         effects_group.add(DamageText(self.rect.centerx, self.rect.top, amount))
         if self.hp <= 0:
@@ -573,14 +686,22 @@ class Crate(pygame.sprite.Sprite):
             if rand < 0.35:  
                 w_type = random.choice([
                     {"type": "pistol", "name": "强力手枪", "damage": 35, "cd": 250},
-                    {"type": "melee", "name": "近战小刀", "damage": 30, "range": 50, "cd": 400},
+                    {"type": "melee", "name": "近战小刀", "damage": 30, "range": 80, "cd": 400},
                     {"type": "melee", "name": "大刀", "damage": 50, "range": 140, "cd": 800},
                     {"type": "pistol", "name": "机关枪", "damage": 6, "cd": 100},
-                    {"type": "flamethrower", "name": "火焰枪", "damage": 3, "range": 150, "cd": 150},
-                    {"type": "bow", "name": "魔法弓", "damage": 45, "cd": 150}
+                    {"type": "flamethrower", "name": "火焰枪", "damage": 5, "range": 150, "cd": 600},
+                    {"type": "bow", "name": "魔法弓", "damage": 45, "cd": 150},
+                    {"type": "grenade", "name": "手榴弹", "damage": 70, "cd": 600} 
                 ])
-                items_group.add(GroundItem(self.rect.centerx, self.rect.centery, "weapon", w_type))
-            elif rand < 0.65: items_group.add(GroundItem(self.rect.centerx, self.rect.centery, "potion"))
+                w_img = global_weapon_images.get(w_type["name"])
+                items_group.add(GroundItem(self.rect.centerx, self.rect.centery, "weapon", w_type, w_img))
+            elif rand < 0.65: 
+                items_group.add(GroundItem(self.rect.centerx, self.rect.centery, "potion"))
+                
+    def draw(self, surface, camera_x, camera_y):
+        draw_x = self.rect.centerx - camera_x - self.image.get_width() // 2
+        draw_y = self.rect.centery - camera_y - self.image.get_height() // 2
+        surface.blit(self.image, (draw_x, draw_y))            
 
 # ================= 敌人逻辑 =================
 class Enemy(pygame.sprite.Sprite):
@@ -590,11 +711,22 @@ class Enemy(pygame.sprite.Sprite):
         self.hp = self.max_hp
         self.speed = 2.0 + (floor * 0.2) * difficulty_mult["spd"]
         self.damage = max(1, int(1 * difficulty_mult["dmg"] * (1 + floor * 0.1)))
-        # 🖼️👉 【替换贴图：普通敌人】
         self.frames = load_frames(["enemy_run.png"], RED, (35, 35), "circle")
         self.image = self.frames[0]
         self.rect = self.image.get_rect(center=(x, y))
         self.is_exploded, self.burn_duration, self.burn_timer = False, 0, 0
+        self.burn_dmg = 0
+
+    def take_damage(self, amount, is_true_damage=False, **kwargs):
+        if is_true_damage:
+            self.hp -= amount
+        else:
+            if getattr(self, 'shield', 0) > 0:
+                dmg_taken = min(self.shield, amount)
+                self.shield -= dmg_taken
+                self.hp -= (amount - dmg_taken)
+            else:
+                self.hp -= amount
 
     def update(self, px, py, crates_group=None):
         dx, dy = px - self.rect.centerx, py - self.rect.centery
@@ -615,17 +747,28 @@ class Enemy(pygame.sprite.Sprite):
     def explode(self, enemies_group, player, effects_group):
         if self.is_exploded or not player.has_explosion: return
         self.is_exploded = True
-        effects_group.add(ExplosionEffect(self.rect.centerx, self.rect.centery, player.explosion_damage))
-        rect = pygame.Rect(self.rect.centerx - player.explosion_radius, self.rect.centery - player.explosion_radius, player.explosion_radius * 2, player.explosion_radius * 2)
+        
+        final_ex_dmg = int(player.explosion_damage_base * player.bonus_explosion_mult) 
+        radius = int(50 * player.explosion_radius_mult)
+        if getattr(player, "has_large_explosion", False):
+            radius *= 2 
+            
+        effects_group.add(ExplosionEffect(self.rect.centerx, self.rect.centery, final_ex_dmg, radius))
+        
+        check_x = int(self.rect.centerx - radius)
+        check_y = int(self.rect.centery - radius)
+        size_r = int(radius * 2)
+        rect = pygame.Rect(check_x, check_y, size_r, size_r)
+        
         for enemy in enemies_group:
             if enemy != self and rect.colliderect(enemy.rect):
-                enemy.hp -= player.explosion_damage
-                effects_group.add(DamageText(enemy.rect.centerx, enemy.rect.top, player.explosion_damage))
+                if math.hypot(enemy.rect.centerx - self.rect.centerx, enemy.rect.centery - self.rect.centery) <= radius:
+                    enemy.take_damage(final_ex_dmg)
+                    effects_group.add(DamageText(enemy.rect.centerx, enemy.rect.top, final_ex_dmg))
 
 class RangedEnemy(Enemy):
     def __init__(self, x, y, hp, floor):
         super().__init__(x, y, hp * 0.6, floor)
-        # 🖼️👉 【替换贴图：远程敌人】
         self.frames = load_frames(["ranged_enemy.png"], BLUE, (30, 30), "circle")
         self.image = self.frames[0]
         self.attack_range, self.attack_cd, self.attack_timer, self.is_attacking = 400, max(80, 150 - floor * 5), 0, False
@@ -643,8 +786,13 @@ class RangedEnemy(Enemy):
 class Boss(Enemy):
     def __init__(self, x, y, hp, floor):
         super().__init__(x, y, hp * 5, floor)
-        # 🖼️👉 【替换贴图：BOSS】
+        self.floor = floor
+        self.max_shield = self.max_hp * 0.3  
+        self.shield = self.max_shield
+        self.shield_broken = False 
+
         self.frames = load_frames(["boss.png"], BOSS_COLOR, (100, 100), "rect")
+        self.cast_frames = load_frames(["boss_cast1.png", "boss_cast2.png"], (200, 0, 200), (100, 100), "rect")
         self.image = self.frames[0]
         self.rect = self.image.get_rect(center=(x, y))
         self.shoot_timer, self.shoot_cd = 0, max(40, 100 - floor * 5)
@@ -652,7 +800,12 @@ class Boss(Enemy):
         self.dash_distance, self.aoe_radius, self.aoe_damage = 250, 200, max(3, self.damage * 2)
         
         self.dash_warning_timer, self.dash_target = 0, None
+        self.casting_timer = 0
+        self.casting_skill = None
+        self.skill_text = ""
+
         self.available_skills = ["dash"]
+        if floor >= 5: self.available_skills.append("summon") 
         if floor >= 10: self.available_skills.append("aoe")
         if floor >= 20: self.available_skills.append("vision")
         if floor >= 30: self.available_skills.append("silence")
@@ -660,7 +813,39 @@ class Boss(Enemy):
         if floor >= 15: self.bullet_weights = [0.6, 0.4, 0.0]
         if floor >= 25: self.bullet_weights = [0.4, 0.3, 0.3]
 
-    def update(self, px, py, enemy_bullets_group, effects_group, player, crates_group):
+    def update(self, px, py, enemy_bullets_group, effects_group, player, crates_group, enemies_group=None):
+        if self.shield <= 0:
+            self.shield_broken = True
+            self.shield = 0
+
+        if not self.shield_broken and self.shield < self.max_shield:
+            regen_speed = 500 + self.floor * 50 
+            self.shield = min(self.max_shield, self.shield + regen_speed / 60)
+
+        if self.casting_timer > 0:
+            self.casting_timer -= 1
+            frame_idx = int((60 - self.casting_timer) / 60 * len(self.cast_frames))
+            frame_idx = min(frame_idx, len(self.cast_frames)-1)
+            self.image = self.cast_frames[frame_idx].copy()
+
+            if self.casting_timer <= 0:
+                skill_type = self.casting_skill
+                if skill_type == "dash": self.dash_warning_timer, self.dash_target = 60, (px, py)
+                elif skill_type == "aoe": effects_group.add(BossAoeEffect(player.rect.centerx, player.rect.centery, self.aoe_radius, self.aoe_damage, player))
+                elif skill_type == "vision": debuffs["vision_reduce"] = 300
+                elif skill_type == "silence": debuffs["buff_disable"] = 300
+                elif skill_type == "summon" and enemies_group is not None:
+                    num_minions = min(6, 2 + self.floor // 10)
+                    for _ in range(num_minions):
+                        mx = self.rect.centerx + random.randint(-100, 100)
+                        my = self.rect.centery + random.randint(-100, 100)
+                        if random.random() < 0.5:
+                            enemies_group.add(RangedEnemy(mx, my, 30 + self.floor*15, self.floor))
+                        else:
+                            enemies_group.add(Enemy(mx, my, 30 + self.floor*20, self.floor))
+                self.skill_text = "" 
+            return 
+
         if self.dash_warning_timer > 0:
             self.dash_warning_timer -= 1
             self.image = self.frames[0].copy()
@@ -687,18 +872,33 @@ class Boss(Enemy):
         self.skill_timer += 1
         if self.skill_timer >= self.skill_cd:
             self.skill_timer = 0
-            skill_type = random.choice(self.available_skills)
-            if skill_type == "dash": self.dash_warning_timer, self.dash_target = 60, (px, py)
-            elif skill_type == "aoe": effects_group.add(BossAoeEffect(player.rect.centerx, player.rect.centery, self.aoe_radius, self.aoe_damage, player))
-            elif skill_type == "vision": debuffs["vision_reduce"] = 300
-            elif skill_type == "silence": debuffs["buff_disable"] = 300
+            self.casting_skill = random.choice(self.available_skills)
+            self.casting_timer = 60 
+            if self.casting_skill == "dash": self.skill_text = "【警告】 锁定冲刺！"
+            elif self.casting_skill == "aoe": self.skill_text = "【警告】 致命毒阵！"
+            elif self.casting_skill == "vision": self.skill_text = "【警告】 剥夺视野！"
+            elif self.casting_skill == "silence": self.skill_text = "【警告】 科技沉默！"
+            elif self.casting_skill == "summon": self.skill_text = "【警告】 召唤仆从！"
 
     def draw_hp(self, surface, camera_x, camera_y):
         pygame.draw.rect(surface, BLACK, (SCREEN_WIDTH//2 - 250, 20, 500, 25))
-        pygame.draw.rect(surface, BOSS_COLOR, (SCREEN_WIDTH//2 - 250, 20, 500 * max(0, self.hp / self.max_hp), 25))
+        
+        hp_ratio = max(0, self.hp / self.max_hp)
+        hp_width = 500 * hp_ratio
+        pygame.draw.rect(surface, BOSS_COLOR, (SCREEN_WIDTH//2 - 250, 20, hp_width, 25))
+        
+        if self.max_shield > 0:
+            shield_ratio = max(0, self.shield / self.max_shield)
+            shield_width = 500 * shield_ratio
+            pygame.draw.rect(surface, BLUE, (SCREEN_WIDTH//2 - 250, 20, shield_width, 25))
+            
         pygame.draw.rect(surface, WHITE, (SCREEN_WIDTH//2 - 250, 20, 500, 25), 3)
-        txt = font_large.render(f"【 守 门 巨 兽 】 HP: {int(max(0, self.hp))}/{int(self.max_hp)}", True, WHITE)
+        txt = font_large.render(f"【 守门巨兽 】 HP: {int(max(0, self.hp))}  护盾: {int(max(0, self.shield))}", True, WHITE)
         surface.blit(txt, (SCREEN_WIDTH//2 - txt.get_width()//2, 22))
+
+        if getattr(self, "skill_text", "") != "":
+            warning_txt = font_large.render(self.skill_text, True, RED)
+            surface.blit(warning_txt, (SCREEN_WIDTH//2 - warning_txt.get_width()//2, 55))
 
 class EnemyBullet(pygame.sprite.Sprite):
     def __init__(self, x, y, angle, speed, damage, b_type=0):
@@ -730,7 +930,6 @@ class Bullet(pygame.sprite.Sprite):
     def __init__(self, x, y, angle, damage, player, is_skill=False):
         super().__init__()
         color = PURPLE if is_skill else WHITE
-        # 🖼️👉 【替换贴图：玩家射出的子弹】
         self.frames = load_frames(["bullet.png"], color, (8, 8), "circle")
         self.image = self.frames[0]
         self.rect = self.image.get_rect(center=(x, y))
@@ -752,7 +951,6 @@ class Bullet(pygame.sprite.Sprite):
 class Coin(pygame.sprite.Sprite):
     def __init__(self, x, y):
         super().__init__()
-        # 🖼️👉 【替换贴图：金币序列帧动画 (4张图)】
         self.frames = load_frames(["金币1.png", "金币2.png", "金币4.png"], YELLOW, (45, 45), "circle")
         self.current_frame = 0
         self.image = self.frames[0]
@@ -760,7 +958,6 @@ class Coin(pygame.sprite.Sprite):
         self.base_y, self.time_offset = y, random.random() * math.pi * 2
 
     def update(self, player):
-        # 【修复】丝滑的逐帧播放动画
         self.current_frame += 0.2
         self.image = self.frames[int(self.current_frame) % len(self.frames)]
         
@@ -775,13 +972,15 @@ class Coin(pygame.sprite.Sprite):
 class Portal(pygame.sprite.Sprite):
     def __init__(self, x, y):
         super().__init__()
-        # 🖼️👉 【替换贴图：通往下一关的传送门】
-        self.image_base = load_frames(["portal.png"], PURPLE, (50, 50), "circle")[0]
-        self.image, self.rect, self.angle = self.image_base, self.image_base.get_rect(center=(x, y)), 0
+        # 🖼️👉 【替换贴图：通关传送门序列帧】
+        self.frames = load_frames(["传送门1.png", "传送门2.png", "传送门1.png", "传送门3.png"], PURPLE, (80, 80), "circle")
+        self.current_frame = 0
+        self.image = self.frames[0]
+        self.rect = self.image.get_rect(center=(x, y))
+        
     def update(self):
-        self.angle = (self.angle + 3) % 360
-        self.image = pygame.transform.rotate(self.image_base, self.angle)
-        self.rect = self.image.get_rect(center=self.rect.center)
+        self.current_frame += 0.2
+        self.image = self.frames[int(self.current_frame) % len(self.frames)]
 
 class SpawnerWarning:
     def __init__(self, x, y): self.x, self.y, self.timer = x, y, 60
@@ -803,9 +1002,10 @@ class Room:
         return self.x*TILE_SIZE+m < px < (self.x+self.w)*TILE_SIZE-m and self.y*TILE_SIZE+m < py < (self.y+self.h)*TILE_SIZE-m
 
 def generate_map(floor):
-    global game_map, room_list, explored_map
+    global game_map, room_list, explored_map, tile_variant_map
     game_map = [[4 for _ in range(MAP_COLS)] for _ in range(MAP_ROWS)]
     explored_map = [[False for _ in range(MAP_COLS)] for _ in range(MAP_ROWS)]
+    tile_variant_map = [[random.randint(0, 100) for _ in range(MAP_COLS)] for _ in range(MAP_ROWS)]
     room_list = []
     
     if floor % 5 == 0:
@@ -850,11 +1050,11 @@ def generate_map(floor):
     finalize_walls()
     return room_list[0].cx * TILE_SIZE, room_list[0].cy * TILE_SIZE
 
-# 【新增】训练营地图生成
 def generate_training_map():
-    global game_map, room_list, explored_map
+    global game_map, room_list, explored_map, tile_variant_map
     game_map = [[4 for _ in range(MAP_COLS)] for _ in range(MAP_ROWS)]
     explored_map = [[True for _ in range(MAP_COLS)] for _ in range(MAP_ROWS)]
+    tile_variant_map = [[random.randint(0, 100) for _ in range(MAP_COLS)] for _ in range(MAP_ROWS)]
     room_list = []
     w, h = 30, 30
     x, y = (MAP_COLS - w)//2, (MAP_ROWS - h)//2
@@ -964,24 +1164,33 @@ def spawn_coins(x, y, is_boss, floor, coins_group):
 # 6. 主程序
 # ==========================================
 def main():
-    global clock, wall_img, outer_wall_img, floor_img, wall_inner_img, coins, current_floor, camera_x, camera_y, debuffs, screen_shake
+    global clock, coins, current_floor, camera_x, camera_y, debuffs, screen_shake
+    global tile_variant_map
     
     clock = pygame.time.Clock()
+    # 🖼️👉 【替换贴图：地图内的墙壁方块】
+    wall_imgs = [
+        load_frames(["wall1.png"], (60, 60, 75), (TILE_SIZE, TILE_SIZE), "rect")[0],
+        load_frames(["wall2.png"], (50, 50, 65), (TILE_SIZE, TILE_SIZE), "rect")[0],
+        load_frames(["wall3.png"], (70, 70, 85), (TILE_SIZE, TILE_SIZE), "rect")[0]
+    ]
+    outer_wall_imgs = [
+        load_frames(["outer_wall1.png"], (20, 20, 25), (TILE_SIZE, TILE_SIZE), "rect")[0],
+    ]
+    floor_imgs = [
+        load_frames(["floor1.png"], (40, 40, 45), (TILE_SIZE, TILE_SIZE), "rect")[0],
+        load_frames(["floor2.png"], (35, 35, 40), (TILE_SIZE, TILE_SIZE), "rect")[0],
+        load_frames(["floor3.png"], (45, 45, 50), (TILE_SIZE, TILE_SIZE), "rect")[0]
+    ]
+    wall_inner_imgs = [
+        load_frames(["wall_inner1.png"], DARK_GRAY, (TILE_SIZE, TILE_SIZE), "rect")[0],
+        load_frames(["wall_inner2.png"], (70,70,70), (TILE_SIZE, TILE_SIZE), "rect")[0],
+        load_frames(["wall_inner3.png"], (90,90,90), (TILE_SIZE, TILE_SIZE), "rect")[0]
+    ]
     
-    # 🖼️👉 【替换贴图：房间边界墙】
-    wall_img = load_frames(["wall.png"], (60, 60, 75), (TILE_SIZE, TILE_SIZE), "rect")[0]
-    # 🖼️👉 【替换贴图：外围深渊墙】
-    outer_wall_img = load_frames(["outer_wall.png"], (20, 20, 25), (TILE_SIZE, TILE_SIZE), "rect")[0]
-    # 🖼️👉 【替换贴图：可走的地板、房间内的独立障碍物】
-    floor_img = load_frames(["floor.png"], (40, 40, 45), (TILE_SIZE, TILE_SIZE), "rect")[0]
-    wall_inner_img = load_frames(["wall_inner.png"], DARK_GRAY, (TILE_SIZE, TILE_SIZE), "rect")[0]
-    
-    # 🖼️👉 【替换贴图：左下角显示的技能图标 】
     skill_icon_img = load_frames(["skill_icon.png"], PURPLE, (40, 40), "rect")[0]
-    # 🖼️👉 【替换贴图：关卡传送期间的全屏背景图】
     teleport_bg = load_frames(["teleport_bg.png"], (20, 10, 40), (SCREEN_WIDTH, SCREEN_HEIGHT), "rect")[0]
 
-    # 🖼️👉 【替换贴图：玩家持有的实体武器库】
     global_weapon_images = {
         "普通手枪": load_frames(["普通手枪.png"], GRAY, (90, 36), "rect")[0],
         "强力手枪": load_frames(["heavy_pistol.png"], (100,100,100), (45, 16), "rect")[0],
@@ -989,41 +1198,47 @@ def main():
         "大刀": load_frames(["大刀.png"], WHITE, (84,32), "rect")[0],
         "机关枪": load_frames(["machine_gun.png"], (80,80,80), (60, 20), "rect")[0],
         "火焰枪": load_frames(["flamethrower.png"], (255,69,0), (55, 16), "rect")[0],
-        "魔法弓": load_frames(["magic_bow.png"], (138, 43, 226), (40, 70), "rect")[0]
+        "魔法弓": load_frames(["magic_bow.png"], (138, 43, 226), (40, 70), "rect")[0],
+        "手榴弹": load_frames(["grenade_icon.png"], DARK_GREEN, (20, 20), "circle")[0]
     }
 
     game_state, coins, current_floor, difficulty_name, death_timer, acquired_talents, shop_page = "MENU", 0, 1, "普通", 0, [], 0
-    prev_state = "" # 记录暂停前状态
+    prev_state = "" 
     boss_alive = False
     teleport_timer = 0
-    
+    sandbags = pygame.sprite.Group() 
+
     def init_shop_items():
         return [
             {"id": "shield_max", "name": "提升护盾上限", "cost": 5, "level": 0, "max": 99, "cost_up": 15},
             {"id": "melee_range", "name": "提升扇形范围", "cost": 15, "level": 0, "max": 99, "cost_up": 20}, 
-            {"id": "ranged_dmg", "name": "提升远程伤害", "cost": 10, "level": 0, "max": 99, "cost_up": 5},
-            {"id": "melee_dmg", "name": "提升近战伤害", "cost": 15, "level": 0, "max": 99, "cost_up": 8},
+            {"id": "ranged_mult", "name": "提升远程伤害", "cost": 10, "level": 0, "max": 99, "cost_up": 5},
+            {"id": "melee_mult", "name": "提升近战伤害", "cost": 15, "level": 0, "max": 99, "cost_up": 8},
             {"id": "fir", "name": "提升射速冷却", "cost": 15, "level": 0, "max": 5, "cost_up": 10},
             {"id": "spd", "name": "提升移动速度", "cost": 15, "level": 0, "max": 5, "cost_up": 10},
             {"id": "hp", "name": "恢复1点生命", "cost": 5, "level": 0, "max": 999, "cost_up": 0},
-            {"id": "explosion", "name": "提升爆炸伤害", "cost": 5, "level": 0, "max": 99, "cost_up": 10}
+            {"id": "explosion", "name": "提升全爆威力", "cost": 15, "level": 0, "max": 99, "cost_up": 15},
+            {"id": "exp_range", "name": "提升爆炸范围", "cost": 15, "level": 0, "max": 99, "cost_up": 15}
         ]
     
     all_talents = [
         {"id": "bounce", "name": "反弹墙壁", "desc": "子弹触墙可反弹1次", "unique": True},
         {"id": "hp_up", "name": "生命涌动", "desc": "生命上限+2并回满血", "unique": False}, 
         {"id": "magnet", "name": "金币磁铁", "desc": "大范围自动吸附金币", "unique": True},
-        {"id": "explosion", "name": "敌人爆炸", "desc": "击败敌人有概率爆炸", "unique": True},
+        {"id": "explosion", "name": "敌人爆炸", "desc": "击败敌人会发生爆炸", "unique": True},
         {"id": "weapon_slot", "name": "武器栏+1", "desc": "解锁额外武器栏位", "unique": True},
         {"id": "skill_up", "name": "技能专精", "desc": "主动技能持续时间翻倍", "unique": True},
         {"id": "revive", "name": "凤凰涅槃", "desc": "死亡时满血复活一次", "unique": True},
         {"id": "scatter_up", "name": "散射强化", "desc": "所有散射武器额外增加两条弹道", "unique": True},
-        {"id": "charge_fast", "name": "蓄力极速", "desc": "弓箭等蓄力武器蓄力速度翻倍", "unique": True}
+        {"id": "charge_fast", "name": "蓄力极速", "desc": "弓箭等蓄力武器蓄力速度翻倍", "unique": True},
+        {"id": "large_explosion", "name": "爆破鬼才", "desc": "所有的爆炸范围直接翻倍！", "unique": True}
     ]
     current_talents = []
-    sandbags = pygame.sprite.Group()
 
     def reset_floor(player_instance=None):
+        nonlocal sandbags
+        sandbags.empty() 
+
         sx, sy = generate_map(current_floor)
         p = Player(sx, sy) if player_instance is None else player_instance
         p.rect.center = (sx, sy)
@@ -1036,28 +1251,28 @@ def main():
                     cx, cy = random.randint(r.x+1, r.x+r.w-2), random.randint(r.y+1, r.y+r.h-2)
                     attempts += 1
                 if game_map[cy][cx] == 1: crates_group.add(Crate(cx*TILE_SIZE + TILE_SIZE//2, cy*TILE_SIZE + TILE_SIZE//2))
-        return p, pygame.sprite.Group(), pygame.sprite.Group(), pygame.sprite.Group(), pygame.sprite.Group(), pygame.sprite.Group(), [], False, pygame.sprite.Group(), crates_group, pygame.sprite.Group()
+        return p, pygame.sprite.Group(), pygame.sprite.Group(), pygame.sprite.Group(), pygame.sprite.Group(), pygame.sprite.Group(), [], False, pygame.sprite.Group(), crates_group, pygame.sprite.Group(), pygame.sprite.Group()
 
     def init_training():
         nonlocal sandbags
         sx, sy = generate_training_map()
         p = Player(sx, sy)
-        # 训练营发放所有武器
         p.weapons = [
             {"type": "pistol", "name": "普通手枪", "damage": 25, "cd": 300},
             {"type": "pistol", "name": "强力手枪", "damage": 35, "cd": 250},
-            {"type": "melee", "name": "近战小刀", "damage": 30, "range": 50, "cd": 400},
+            {"type": "melee", "name": "近战小刀", "damage": 30, "range": 80, "cd": 400},
             {"type": "melee", "name": "大刀", "damage": 50, "range": 140, "cd": 800},
             {"type": "pistol", "name": "机关枪", "damage": 6, "cd": 100},
-            {"type": "flamethrower", "name": "火焰枪", "damage": 3, "range": 150, "cd": 150},
-            {"type": "bow", "name": "魔法弓", "damage": 45, "cd": 150}
+            {"type": "flamethrower", "name": "火焰枪", "damage": 5, "range": 150, "cd": 600}, 
+            {"type": "bow", "name": "魔法弓", "damage": 45, "cd": 150},
+            {"type": "grenade", "name": "手榴弹", "damage": 50, "cd": 600}
         ]
         p.weapon_slots = len(p.weapons)
         sandbags.empty()
         sandbags.add(Sandbag(sx, sy - 150))
-        return p, pygame.sprite.Group(), pygame.sprite.Group(), pygame.sprite.Group(), pygame.sprite.Group(), pygame.sprite.Group(), [], False, pygame.sprite.Group(), pygame.sprite.Group(), pygame.sprite.Group()
+        return p, pygame.sprite.Group(), pygame.sprite.Group(), pygame.sprite.Group(), pygame.sprite.Group(), pygame.sprite.Group(), [], False, pygame.sprite.Group(), pygame.sprite.Group(), pygame.sprite.Group(), pygame.sprite.Group()
 
-    player, bullets, enemy_bullets, enemies, coins_group, portals, spawners, portal_spawned, effects, crates, items_group = reset_floor()
+    player, bullets, enemy_bullets, enemies, coins_group, portals, spawners, portal_spawned, effects, crates, items_group, grenades = reset_floor()
     is_battle_locked, current_room_index, spawn_pending = False, -1, False
 
     running = True
@@ -1067,7 +1282,6 @@ def main():
             if event.type == pygame.QUIT: running = False
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_F11: pygame.display.toggle_fullscreen()
-                # 【新增】P键和ESC键 呼出暂停菜单
                 if event.key in [pygame.K_p, pygame.K_ESCAPE]:
                     if game_state in ["PLAYING", "TRAINING"]:
                         prev_state = game_state
@@ -1080,12 +1294,12 @@ def main():
                     if play_hover: 
                         coins, current_floor, acquired_talents, shop_page = 0, 1, [], 0
                         shop_items = init_shop_items()
-                        player, bullets, enemy_bullets, enemies, coins_group, portals, spawners, portal_spawned, effects, crates, items_group = reset_floor()
+                        player, bullets, enemy_bullets, enemies, coins_group, portals, spawners, portal_spawned, effects, crates, items_group, grenades = reset_floor()
                         game_state = "PLAYING"
                     elif train_hover:
-                        coins, acquired_talents, shop_page = 9999, [], 0 # 训练营多给点钱买天赋
+                        coins, acquired_talents, shop_page = 99999, [], 0 
                         shop_items = init_shop_items()
-                        player, bullets, enemy_bullets, enemies, coins_group, portals, spawners, portal_spawned, effects, crates, items_group = init_training()
+                        player, bullets, enemy_bullets, enemies, coins_group, portals, spawners, portal_spawned, effects, crates, items_group, grenades = init_training()
                         game_state = "TRAINING"
                     elif diff_hover: game_state = "DIFF"
                     elif intro_hover: game_state = "INTRO"
@@ -1097,10 +1311,10 @@ def main():
                         if prev_state == "PLAYING":
                             coins, current_floor, acquired_talents, shop_page = 0, 1, [], 0
                             shop_items = init_shop_items()
-                            player, bullets, enemy_bullets, enemies, coins_group, portals, spawners, portal_spawned, effects, crates, items_group = reset_floor()
+                            player, bullets, enemy_bullets, enemies, coins_group, portals, spawners, portal_spawned, effects, crates, items_group, grenades = reset_floor()
                             game_state = "PLAYING"
                         else:
-                            player, bullets, enemy_bullets, enemies, coins_group, portals, spawners, portal_spawned, effects, crates, items_group = init_training()
+                            player, bullets, enemy_bullets, enemies, coins_group, portals, spawners, portal_spawned, effects, crates, items_group, grenades = init_training()
                             game_state = "TRAINING"
                     elif btn_main: game_state = "MENU"
                     elif btn_quit_pause: running = False
@@ -1116,7 +1330,11 @@ def main():
                         game_state = "TELEPORTING"
                         teleport_timer = pygame.time.get_ticks()
                     elif btn_confirm_no:
+                        safe_room = room_list[current_room_index]
+                        player.rect.centerx = safe_room.cx * TILE_SIZE
+                        player.rect.centery = int((safe_room.cy + 1.5) * TILE_SIZE)
                         game_state = "PLAYING"
+                        
                 elif game_state == "SHOP":
                     clicked = False
                     if prev_hover: shop_page -= 1; clicked = True
@@ -1124,15 +1342,17 @@ def main():
                     for btn_rect, item, can_buy in shop_btns:
                         if btn_rect.collidepoint(mx, my) and can_buy:
                             clicked = True; coins -= item['cost']; item['level'] += 1; item['cost'] += item['cost_up']
-                            if item['id'] == 'ranged_dmg': player.bonus_ranged_dmg += 5
-                            elif item['id'] == 'melee_dmg': player.bonus_melee_dmg += 10
-                            elif item['id'] == 'melee_range': player.bonus_range_mult *= 1.2
+                            
+                            if item['id'] == 'ranged_mult': player.bonus_ranged_mult *= 1.2
+                            elif item['id'] == 'melee_mult': player.bonus_melee_mult *= 1.2
+                            elif item['id'] == 'melee_range': player.bonus_range_mult *= 1.1
                             elif item['id'] == 'spd': player.speed += 1
                             elif item['id'] == 'fir': player.bonus_cd_reduction += 10
                             elif item['id'] == 'hp': player.hp = min(player.max_hp, player.hp + 1); item['level'] -= 1
                             elif item['id'] == 'shield_max': player.max_shield += 1
-                            elif item['id'] == 'explosion' and player.has_explosion: player.explosion_damage += 10
-                    # 点外面关闭商店
+                            elif item['id'] == 'explosion': player.bonus_explosion_mult *= 1.2
+                            elif item['id'] == 'exp_range': player.explosion_radius_mult *= 1.2 
+                            
                     if not clicked and not pygame.Rect((SCREEN_WIDTH-700)//2, (SCREEN_HEIGHT-500)//2, 700, 500).collidepoint(mx, my): 
                         game_state = prev_state if prev_state in ["PLAYING", "TRAINING"] else "PLAYING"
                         
@@ -1142,16 +1362,14 @@ def main():
                             if t['id'] == 'bounce': player.has_bounce = True
                             elif t['id'] == 'hp_up': player.max_hp += 2; player.hp = player.max_hp
                             elif t['id'] == 'magnet': player.has_magnet = True
-                            elif t['id'] == 'explosion': 
-                                player.has_explosion = True
-                                for item in shop_items:
-                                    if item['id'] == 'explosion': item['max'] = 5
+                            elif t['id'] == 'explosion': player.has_explosion = True
                             elif t['id'] == 'weapon_slot':
                                 player.weapon_slots += 1; player.weapons.append({"type": "pistol", "name": "备用手枪", "damage": 25, "cd": 250})
                             elif t['id'] == 'skill_up': player.skill_duration_max *= 2
                             elif t['id'] == 'revive': player.has_revive = True 
                             elif t['id'] == 'scatter_up': player.bonus_scatter += 2
                             elif t['id'] == 'charge_fast': player.charge_speed_mult *= 2.0
+                            elif t['id'] == 'large_explosion': player.has_large_explosion = True 
                                 
                             acquired_talents.append(t['id']); game_state = "PLAYING"
                 elif game_state == "GAMEOVER" and btn_restart: game_state = "MENU"
@@ -1177,7 +1395,8 @@ def main():
                                         player.weapons.append(item.weapon_data)
                                         player.current_weapon = len(player.weapons) - 1
                                     else:
-                                        items_group.add(GroundItem(player.rect.centerx, player.rect.centery, "weapon", player.weapons[player.current_weapon]))
+                                        w_img = global_weapon_images.get(player.weapons[player.current_weapon]["name"])
+                                        items_group.add(GroundItem(player.rect.centerx, player.rect.centery, "weapon", player.weapons[player.current_weapon], w_img))
                                         player.weapons[player.current_weapon] = item.weapon_data
                                     item.kill()
                                 break 
@@ -1188,7 +1407,6 @@ def main():
             screen.fill((20, 20, 30))
             screen.blit(font_title.render("绝 境 突 围", True, YELLOW), (SCREEN_WIDTH//2 - 120, 150))
             play_hover = draw_button(screen, "开始游戏", SCREEN_WIDTH//2-100, 300, 200, 50, (50,150,50), (100,200,100), mx, my)
-            # 【新增】训练营按钮
             train_hover = draw_button(screen, "训练营 (全武器测试)", SCREEN_WIDTH//2-125, 370, 250, 50, (150,50,150), (200,100,200), mx, my)
             diff_hover = draw_button(screen, "难度选择", SCREEN_WIDTH//2-100, 440, 200, 50, (150,100,50), (200,150,100), mx, my)
             intro_hover = draw_button(screen, "游戏介绍", SCREEN_WIDTH//2-100, 510, 200, 50, (50,100,150), (100,150,200), mx, my)
@@ -1218,7 +1436,7 @@ def main():
             
             if pygame.time.get_ticks() - teleport_timer > 2000:
                 current_floor += 1
-                player, bullets, enemy_bullets, enemies, coins_group, portals, spawners, portal_spawned, effects, crates, items_group = reset_floor(player)
+                player, bullets, enemy_bullets, enemies, coins_group, portals, spawners, portal_spawned, effects, crates, items_group, grenades = reset_floor(player)
                 is_battle_locked, current_room_index, spawn_pending = False, -1, False
                 if (current_floor - 1) % 3 == 0:
                     available_talents = [t for t in all_talents if not (t.get('unique', True) and t['id'] in acquired_talents)]
@@ -1228,7 +1446,6 @@ def main():
                     game_state = "PLAYING"
             pygame.display.flip(); clock.tick(FPS); continue
 
-        # 【合并更新逻辑】PLAYING 和 TRAINING 核心共用
         if game_state in ["PLAYING", "TRAINING"]:
             if debuffs["vision_reduce"] > 0: debuffs["vision_reduce"] -= 1
             if debuffs["buff_disable"] > 0: debuffs["buff_disable"] -= 1
@@ -1276,40 +1493,38 @@ def main():
                 return False
 
             mouse_pressed = pygame.mouse.get_pressed()[0]
-            # 这里传入的寻敌目标，如果有沙袋也传沙袋进去，方便魔法弓锁定
             track_targets = list(enemies) + list(sandbags)
-            attack_list = player.process_attack(mouse_pressed, mx, my, camera_x, camera_y, bullets, enemy_bullets, effects, global_weapon_images, track_targets)
+            attack_list = player.process_attack(mouse_pressed, mx, my, camera_x, camera_y, bullets, enemy_bullets, effects, global_weapon_images, track_targets, grenades, crates, items_group)
             
             for atk_data in attack_list:
                 atk_type, sx, sy, atk_angle, atk_range, dmg = atk_data
                 
-                # 敌人受击
                 for enemy in enemies:
                     if hit_target(enemy, atk_data):
-                        enemy.hp -= dmg
+                        enemy.take_damage(dmg) 
                         if atk_type == "melee" and not isinstance(enemy, Boss):
                             hit_ang = math.atan2(enemy.rect.centery - sy, enemy.rect.centerx - sx)
                             enemy.rect.centerx += math.cos(hit_ang) * 15
                             enemy.rect.centery += math.sin(hit_ang) * 15
                             screen_shake = 5
                         if atk_type == "flame":
-                            enemy.burn_duration, enemy.burn_timer = 180, 30     
+                            enemy.burn_duration = 180  
+                            enemy.burn_timer = 60      
+                            enemy.burn_dmg = enemy.max_hp * 0.10 
+
                         effects.add(DamageText(enemy.rect.centerx, enemy.rect.top, dmg))
                         if enemy.hp <= 0:
                             enemy.explode(enemies, player, effects); enemy.kill()
                             spawn_coins(enemy.rect.centerx, enemy.rect.centery, isinstance(enemy, Boss), current_floor, coins_group)
                             
-                # 箱子受击
                 for crate in crates:
-                    if hit_target(crate, atk_data): crate.take_damage(dmg, items_group, effects)
+                    if hit_target(crate, atk_data): crate.take_damage(dmg, items_group, effects, global_weapon_images)
                 
-                # 沙袋受击
                 for bag in sandbags:
                     if hit_target(bag, atk_data):
                         bag.take_damage(dmg, effects)
                         if atk_type == "melee": screen_shake = 6
 
-            # 房间通关逻辑仅在 PLAYING 生效
             if game_state == "PLAYING":
                 room_info_text, room_info_color = f"第 {current_floor} 层", GREEN
                 for i, room in enumerate(room_list):
@@ -1352,29 +1567,29 @@ def main():
                     if enemy.burn_duration > 0:
                         enemy.burn_duration -= 1; enemy.burn_timer -= 1
                         if enemy.burn_timer <= 0:
-                            enemy.hp -= 10; enemy.burn_timer = 60
-                            effects.add(DamageText(enemy.rect.centerx, enemy.rect.top, 10, custom_color=(255, 100, 0))) 
+                            enemy.take_damage(enemy.burn_dmg, is_true_damage=True) 
+                            enemy.burn_timer = 60
+                            effects.add(DamageText(enemy.rect.centerx, enemy.rect.top, enemy.burn_dmg, custom_color=(255, 100, 0))) 
                             if enemy.hp <= 0:
                                 enemy.explode(enemies, player, effects); enemy.kill()
                                 spawn_coins(enemy.rect.centerx, enemy.rect.centery, isinstance(enemy, Boss), current_floor, coins_group)
                     
                     if enemy.alive():
                         if isinstance(enemy, Boss): 
-                            enemy.update(player.rect.centerx, player.rect.centery, enemy_bullets, effects, player, crates)
+                            enemy.update(player.rect.centerx, player.rect.centery, enemy_bullets, effects, player, crates, enemies)
                             boss_alive = True
                         elif isinstance(enemy, RangedEnemy): enemy.update(player.rect.centerx, player.rect.centery, enemy_bullets, crates)
                         else: enemy.update(player.rect.centerx, player.rect.centery, crates)
             
             else:
-                # 训练营独有文字
                 room_info_text, room_info_color = "极 致 训 练 营", ORANGE
 
-            bullets.update(); enemy_bullets.update(); effects.update(); sandbags.update(); coins_group.update(player); portals.update()
+            bullets.update(); enemy_bullets.update(); effects.update(); sandbags.update(); coins_group.update(player); portals.update(); grenades.update()
 
             hits = pygame.sprite.groupcollide(enemies, bullets, False, True)
             for enemy, bullet_list in hits.items():
                 for b in bullet_list:
-                    enemy.hp -= b.damage
+                    enemy.take_damage(b.damage)
                     effects.add(DamageText(enemy.rect.centerx, enemy.rect.top, b.damage))
                 if enemy.hp <= 0:
                     enemy.explode(enemies, player, effects); enemy.kill()
@@ -1382,9 +1597,8 @@ def main():
             
             hits_crates = pygame.sprite.groupcollide(crates, bullets, False, True)
             for crate, bullet_list in hits_crates.items():
-                for b in bullet_list: crate.take_damage(b.damage, items_group, effects)
+                for b in bullet_list: crate.take_damage(b.damage, items_group, effects, global_weapon_images)
                 
-            # 沙袋子弹碰撞判定
             hits_bags = pygame.sprite.groupcollide(sandbags, bullets, False, True)
             for bag, bullet_list in hits_bags.items():
                 for b in bullet_list: bag.take_damage(b.damage, effects)
@@ -1404,13 +1618,15 @@ def main():
                         player.just_revived = False
 
             coins += len(pygame.sprite.spritecollide(player, coins_group, True))
+
+            for enemy in list(enemies):
+                if enemy.hp <= 0 and enemy.alive():
+                    enemy.explode(enemies, player, effects)
+                    spawn_coins(enemy.rect.centerx, enemy.rect.centery, isinstance(enemy, Boss), current_floor, coins_group)
+                    enemy.kill()
             if pygame.sprite.spritecollide(player, portals, False):
                 game_state = "PORTAL_CONFIRM"
-                player.rect.centerx -= 25
 
-        # =======================
-        # 屏幕公共渲染区域
-        # =======================
         if game_state in ["PLAYING", "TRAINING", "SHOP", "TALENT", "PORTAL_CONFIRM", "GAMEOVER_ANIM", "GAMEOVER", "PAUSED"]:
             screen.fill(BLACK)
             
@@ -1422,34 +1638,46 @@ def main():
             for r in range(start_r, end_r):
                 for c in range(start_c, end_c):
                     draw_x, draw_y = c*TILE_SIZE - camera_x, r*TILE_SIZE - camera_y
-                    if 0 <= r < MAP_ROWS and 0 <= c < MAP_COLS: val = game_map[r][c]
-                    else: val = 4 
+                    
+                    if 0 <= r < MAP_ROWS and 0 <= c < MAP_COLS: 
+                        val = game_map[r][c]
+                        variant_idx = tile_variant_map[r][c]
+                    else: 
+                        val = 4 
+                        variant_idx = (r * 13 + c * 7) % 100 
 
-                    if val == 0: screen.blit(wall_img, (draw_x, draw_y))
-                    elif val == 4: screen.blit(outer_wall_img, (draw_x, draw_y))
-                    elif val == 1: screen.blit(floor_img, (draw_x, draw_y))
+                    if val == 0: screen.blit(wall_imgs[variant_idx % len(wall_imgs)], (draw_x, draw_y))
+                    elif val == 4: screen.blit(outer_wall_imgs[variant_idx % len(outer_wall_imgs)], (draw_x, draw_y))
+                    elif val == 1: screen.blit(floor_imgs[variant_idx % len(floor_imgs)], (draw_x, draw_y))
                     elif val == 2:
                         pygame.draw.rect(screen, ORANGE, (draw_x, draw_y, TILE_SIZE, TILE_SIZE))
                         pygame.draw.rect(screen, RED, (draw_x, draw_y, TILE_SIZE, TILE_SIZE), 2)
-                    elif val == 3: screen.blit(wall_inner_img, (draw_x, draw_y))
+                    elif val == 3: screen.blit(wall_inner_imgs[variant_idx % len(wall_inner_imgs)], (draw_x, draw_y))
 
             for s in spawners: pygame.draw.circle(screen, RED, (s.x-camera_x, s.y-camera_y), 20, 2)
             for effect in effects: 
                 if isinstance(effect, BossAoeEffect): effect.draw(screen, camera_x, camera_y)
-            
-            for e in list(portals)+list(items_group)+list(crates)+list(sandbags)+list(coins_group)+list(enemies)+list(bullets)+list(enemy_bullets):
+
+            # 箱子独特的绘制方式依然保持，将物理的小正方正中央挂上一层画画放的视觉
+            for crate in crates:
+                crate.draw(screen, camera_x, camera_y)
+
+            # ✅ 真正根除了问题的地方！把+list(crates)+ 这几个字符从这除名后完美解决这行通用绘制时的硬印！绝对干练顺！
+            for e in list(portals)+list(items_group)+list(sandbags)+list(coins_group)+list(enemies)+list(bullets)+list(enemy_bullets)+list(grenades):
                 screen.blit(e.image, (e.rect.x-camera_x, e.rect.y-camera_y))
                 
             for e in enemies:
                 if not isinstance(e, Boss): e.draw_hp(screen, camera_x, camera_y)
             for effect in effects: 
                 if not isinstance(effect, BossAoeEffect): effect.draw(screen, camera_x, camera_y)
+                
+            for bag in sandbags:
+                bag.draw_dps(screen, camera_x, camera_y)
 
             if game_state in ["GAMEOVER_ANIM", "GAMEOVER"]: player.update(is_dead=True)
             screen.blit(player.image, (player.rect.x-camera_x, player.rect.y-camera_y))
             player.draw_weapon(screen, camera_x, camera_y, mx, my, global_weapon_images)
             
-            # 致盲渲染
             if debuffs["vision_reduce"] > 0:
                 vision_radius = 220 
                 mask = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
@@ -1475,7 +1703,6 @@ def main():
             for e in enemies:
                 if isinstance(e, Boss): e.draw_hp(screen, camera_x, camera_y)
 
-            # 绘制下方武器栏槽位 (支持超多武器)
             bar_bg = pygame.Rect(320, SCREEN_HEIGHT - 80, SCREEN_WIDTH - 370, 60)
             pygame.draw.rect(screen, (30,30,30), bar_bg, border_radius=10)
             pygame.draw.rect(screen, GRAY, bar_bg, 2, border_radius=10)
@@ -1486,9 +1713,10 @@ def main():
                 if i < len(player.weapons):
                     w_info = player.weapons[i]
                     act_dmg = w_info["damage"]
-                    if w_info["type"] in ["pistol", "flamethrower", "bow"]: act_dmg += player.bonus_ranged_dmg
-                    elif w_info["type"] == "melee": act_dmg += player.bonus_melee_dmg
-                    # 如果槽位太窄不显示文字，或者缩小文字
+                    if w_info["type"] in ["pistol", "bow"]: act_dmg = int(act_dmg * player.bonus_ranged_mult)
+                    elif w_info["type"] == "melee": act_dmg = int(act_dmg * player.bonus_melee_mult)
+                    elif w_info["type"] == "grenade": act_dmg = int(act_dmg * player.bonus_explosion_mult)
+                    
                     if slot_width > 50:
                         screen.blit(font_base.render(w_info["name"][:4], True, WHITE), (slot_rect.x + 5, slot_rect.y + 5))
                         screen.blit(font_base.render(f"{act_dmg}", True, WHITE), (slot_rect.x + 5, slot_rect.y + 25))
@@ -1497,7 +1725,6 @@ def main():
                 pygame.draw.line(screen, WHITE, (mx-10, my), (mx+10, my), 2)
                 pygame.draw.line(screen, WHITE, (mx, my-10), (mx, my+10), 2)
                 
-            # 【新增】暂停菜单 UI
             if game_state == "PAUSED":
                 overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT)); overlay.set_alpha(200); overlay.fill(BLACK); screen.blit(overlay, (0, 0))
                 cw, ch = 400, 450
