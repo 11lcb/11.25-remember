@@ -293,10 +293,15 @@ class Sandbag(pygame.sprite.Sprite):
 class ThrownGrenade(pygame.sprite.Sprite):
     def __init__(self, x, y, tx, ty, damage, base_damage, player, enemies, effects, crates=None, items=None, w_imgs=None, coins=None):
         super().__init__()
-        # 🖼️👉 【可替换贴图：手榴弹】
-        self.image = load_frames(["grenade.png"], DARK_GREEN, (15, 15), "circle")[0]
+        # 🖼️👉 【可替换贴图：手榴弹（支持帧动画替换）】
+        self.frames = load_frames(["grenade.png"], DARK_GREEN, (15, 15), "circle")
+        self.image = self.frames[0]
         
+        # 保存平面基础影子坐标系与抛物线参数
+        self.base_x, self.base_y = float(x), float(y) 
+        self.z = 0 
         self.rect = self.image.get_rect(center=(x, y))
+
         self.tx, self.ty = tx, ty
         self.damage = int(damage)
         self.base_damage = base_damage
@@ -308,37 +313,65 @@ class ThrownGrenade(pygame.sprite.Sprite):
         self.w_imgs = w_imgs
         self.coins_group = coins
         self.speed = 12
+        self.anim_frame = 0 
         
         angle = math.atan2(ty - y, tx - x)
         self.vx = math.cos(angle) * self.speed
         self.vy = math.sin(angle) * self.speed
         self.travel_dist = math.hypot(tx - x, ty - y)
         self.current_dist = 0
+        
+        # 物理重力高度公式运算设定：保证它总是落在指定距离结束前的高度
+        self.flight_ticks = max(1.0, self.travel_dist / self.speed)
+        self.vz = 8.0 
+        self.gravity = (2.0 * self.vz) / self.flight_ticks
+        self.is_exploded = False
 
     def update(self):
-        self.rect.x += self.vx
-        self.rect.y += self.vy
+        if self.is_exploded: return
+
+        # 帧动画递增运转 (抛出时的视觉效果自行填加修改素材内容生效)
+        self.anim_frame += 0.5 
+        self.image = self.frames[int(self.anim_frame) % len(self.frames)]
+
+        self.base_x += self.vx
+        self.base_y += self.vy
         self.current_dist += self.speed
-        if self.current_dist >= self.travel_dist or is_wall(self.rect.centerx, self.rect.centery):
-            self.explode(); self.kill()
+        
+        #抛物线Z高度重置推算更新
+        self.z += self.vz
+        self.vz -= self.gravity
+        
+        #呈现真正的图幅偏移碰撞坐标点渲染绘制层 
+        self.rect.centerx = int(self.base_x)
+        self.rect.centery = int(self.base_y - max(0, self.z))
+
+        # 手雷空中时不再具备击打计算逻辑和碰撞：判断为当到达目的边缘或是已坠下（Z点判定低于）并已经起飞段距离，触发引爆
+        if self.current_dist >= self.travel_dist or (self.z <= 0 and self.current_dist > self.speed * 2) or is_wall(self.base_x, self.base_y):
+            self.explode()
+            self.kill()
 
     def explode(self):
+        self.is_exploded = True
         base_radius = int((50 + self.base_damage * 0.5) * self.player.explosion_radius_mult) 
         if getattr(self.player, "has_large_explosion", False):
             base_radius *= 2
-        self.effects.add(ExplosionEffect(self.rect.centerx, self.rect.centery, self.damage, base_radius))
-        rect = pygame.Rect(int(self.rect.centerx - base_radius), int(self.rect.centery - base_radius), int(base_radius * 2), int(base_radius * 2))
+        
+        # 这里使用落在地板的base系标生成中心伤害防止砸到半空中引爆渲染分离导致判定不佳    
+        center_bx, center_by = int(self.base_x), int(self.base_y)    
+        self.effects.add(ExplosionEffect(center_bx, center_by, self.damage, base_radius))
+        rect = pygame.Rect(int(center_bx - base_radius), int(center_by - base_radius), int(base_radius * 2), int(base_radius * 2))
         
         for enemy in self.enemies:
             if rect.colliderect(enemy.rect):
-                if math.hypot(enemy.rect.centerx - self.rect.centerx, enemy.rect.centery - self.rect.centery) <= base_radius:
+                if math.hypot(enemy.rect.centerx - center_bx, enemy.rect.centery - center_by) <= base_radius:
                     enemy.take_damage(self.damage)
                     self.effects.add(DamageText(enemy.rect.centerx, enemy.rect.top, self.damage))
                     
         if self.crates is not None:
             for crate in self.crates:
                 if rect.colliderect(crate.rect):
-                    if math.hypot(crate.rect.centerx - self.rect.centerx, crate.rect.centery - self.rect.centery) <= base_radius:
+                    if math.hypot(crate.rect.centerx - center_bx, crate.rect.centery - center_by) <= base_radius:
                         crate.take_damage(self.damage, self.items, self.effects, self.w_imgs, self.coins_group)
 
 # ==========================================
@@ -679,6 +712,38 @@ class GroundItem(pygame.sprite.Sprite):
         surf = font_base.render(txt, True, WHITE)
         surface.blit(surf, (self.rect.centerx - camera_x - surf.get_width()//2, self.rect.y - camera_y - 25))
 
+class WeaponStand(pygame.sprite.Sprite):
+    def __init__(self, x, y, w_data, w_img):
+        super().__init__()
+        # 🖼️👉 【可替换贴图：特殊武器商店-武器基座/展台】
+        self.base_img = load_frames(["weapon_stand.png"], GRAY, (60, 20), "rect")[0]
+        self.w_data = w_data
+        self.w_img = w_img
+        if w_img:
+            new_w, new_h = int(max(20, w_img.get_width() * 1.2)), int(max(10, w_img.get_height() * 1.2))
+            self.scaled_w = pygame.transform.scale(w_img, (new_w, new_h))
+        self.price = random.randint(40, 80)
+        
+        # 将矩形设立为检测交互准心的基准点
+        self.rect = pygame.Rect(x-30, y-10, 60, 60)
+        self.rect.center = (x, y)
+        self.time_offset = random.random() * math.pi * 2
+        self.image = pygame.Surface((1,1), pygame.SRCALPHA) # Dummy，主要是利用自己的绘图
+        
+    def draw_prompt(self, surface, camera_x, camera_y):
+        txt = f"按[F] 购买 | $ {self.price} | {self.w_data['name']}"
+        surf = font_base.render(txt, True, YELLOW)
+        surface.blit(surf, (self.rect.centerx - camera_x - surf.get_width()//2, self.rect.y - camera_y - 30))
+
+    def draw(self, surface, camera_x, camera_y):
+        draw_x = self.rect.centerx - camera_x - self.base_img.get_width() // 2
+        draw_y = self.rect.centery - camera_y - self.base_img.get_height() // 2 + 10
+        surface.blit(self.base_img, (draw_x, draw_y))
+        
+        if hasattr(self, 'scaled_w'):
+            w_draw_y = draw_y - 20 + math.sin(pygame.time.get_ticks() / 150 + self.time_offset) * 5
+            surface.blit(self.scaled_w, (self.rect.centerx - camera_x - self.scaled_w.get_width()//2, w_draw_y))
+
 class Crate(pygame.sprite.Sprite):
     def __init__(self, x, y):
         super().__init__()
@@ -742,7 +807,7 @@ class Enemy(pygame.sprite.Sprite):
         self.speed = 2.0 + (floor * 0.2) * difficulty_mult["spd"]
         self.damage = max(1, int(1 * difficulty_mult["dmg"] * (1 + floor * 0.1)))
         
-        # 🖼️👉 【可替换贴图：近战敌人】
+        # 🖼️👉 【可替换贴图：第一大关/通用 近战敌人】
         self.frames = load_frames(["enemy_run.png"], RED, (35, 35), "circle")
         
         self.image = self.frames[0]
@@ -798,7 +863,7 @@ class RangedEnemy(Enemy):
     def __init__(self, x, y, hp, floor):
         super().__init__(x, y, hp * 0.6, floor)
         
-        # 🖼️👉 【可替换贴图：远程敌人 】 
+        # 🖼️👉 【可替换贴图：第一大关/通用 远程敌人 】 
         self.frames = load_frames(["ranged_enemy.png"], BLUE, (30, 30), "circle")
         
         self.image = self.frames[0]
@@ -818,10 +883,10 @@ class RangedEnemy(Enemy):
 class HealerEnemy(Enemy):
     def __init__(self, x, y, hp, floor):
         super().__init__(x, y, hp * 0.8, floor)
-        # 🖼️👉 【可替换贴图：回血敌人】 
+        # 🖼️👉 【可替换贴图：第一大关/通用 回血敌人】 
         self.frames = load_frames(["healer_enemy.png"], PALE_YELLOW, (35, 35), "circle")
         
-        # 🖼️👉 【可替换贴图：施法动画】
+        # 🖼️👉 【可替换贴图：第一大关/通用 回血施法动画】
         self.heal_frames = load_frames(["healer_cast1.png", "healer_cast2.png"], CYAN, (35, 35), "rect")
         
         self.image = self.frames[0]
@@ -864,7 +929,6 @@ class HealerEnemy(Enemy):
             if is_wall(self.rect.centerx, self.rect.centery + (15 if vy>0 else -15)) or (crates_group and pygame.sprite.spritecollideany(self, crates_group)):
                 self.rect.centery -= vy
 
-
 class Boss(Enemy):
     def __init__(self, x, y, hp, floor, is_tutorial=False):
         super().__init__(x, y, hp, floor) 
@@ -880,11 +944,11 @@ class Boss(Enemy):
         self.shield = self.max_shield
         self.shield_broken = False 
 
-        # 🖼️👉 【可替换贴图：BOSS】 
+        # 🖼️👉 【可替换贴图：第一大关/通用 BOSS】 
         self.frames = load_frames(["boss.png"], BOSS_COLOR, (100, 100), "rect")
-        # 🖼️👉 【可替换贴图：BOSS施法前摇】
+        # 🖼️👉 【可替换贴图：第一大关/通用 BOSS施法前摇】
         self.cast_frames = load_frames(["boss_cast1.png", "boss_cast2.png"], (200, 0, 200), (100, 100), "rect")
-        # 🖼️👉 【可替换贴图：Boss回血动画】
+        # 🖼️👉 【可替换贴图：第一大关/通用 Boss回血动画】
         self.boss_heal_frames = load_frames(["boss_heal1.png", "boss_heal2.png", "boss_heal3.png"], (0, 255, 100), (100, 100), "rect")
         
         self.image = self.frames[0]
@@ -1022,6 +1086,72 @@ class Boss(Enemy):
         if getattr(self, "skill_text", "") != "":
             warning_txt = font_large.render(self.skill_text, True, RED)
             surface.blit(warning_txt, (SCREEN_WIDTH//2 - warning_txt.get_width()//2, 55))
+
+
+# === 分层与进度的分关专用独立兵种类设定区（全额继承基类并放宽自行填写的入口位） ===
+
+class EnemyStage2(Enemy):
+    def __init__(self, x, y, hp, floor):
+        super().__init__(x, y, hp, floor)
+        # 🖼️👉 【可替换贴图：第二大关 近战敌人】（如后续有自定义能力等可以从这里往这后覆写改填机制内容）
+        self.frames = load_frames(["enemy_run.png"], RED, (35, 35), "circle")
+        self.image = self.frames[0]
+
+class RangedEnemyStage2(RangedEnemy):
+    def __init__(self, x, y, hp, floor):
+        super().__init__(x, y, hp, floor)
+        # 🖼️👉 【可替换贴图：第二大关 远程敌人 】 
+        self.frames = load_frames(["ranged_enemy.png"], BLUE, (30, 30), "circle")
+        self.image = self.frames[0]
+
+class HealerEnemyStage2(HealerEnemy):
+    def __init__(self, x, y, hp, floor):
+        super().__init__(x, y, hp, floor)
+        # 🖼️👉 【可替换贴图：第二大关 回血敌人 及 动画 】 
+        self.frames = load_frames(["healer_enemy.png"], PALE_YELLOW, (35, 35), "circle")
+        self.heal_frames = load_frames(["healer_cast1.png", "healer_cast2.png"], CYAN, (35, 35), "rect")
+        self.image = self.frames[0]
+
+class BossStage2(Boss):
+    def __init__(self, x, y, hp, floor, is_tutorial=False):
+        super().__init__(x, y, hp, floor, is_tutorial)
+        # 🖼️👉 【可替换贴图：第二大关的BOSS 及 施法动效等等资源 】 
+        self.frames = load_frames(["b.jpg"], BOSS_COLOR, (100, 100), "rect")
+        self.cast_frames = load_frames(["boss_cast1.png", "boss_cast2.png"], (200, 0, 200), (100, 100), "rect")
+        self.boss_heal_frames = load_frames(["boss_heal1.png", "boss_heal2.png", "boss_heal3.png"], (0, 255, 100), (100, 100), "rect")
+        self.image = self.frames[0]
+
+class EnemyStage3(Enemy):
+    def __init__(self, x, y, hp, floor):
+        super().__init__(x, y, hp, floor)
+        # 🖼️👉 【可替换贴图：第三大关 近战敌人】 
+        self.frames = load_frames(["enemy_run.png"], RED, (35, 35), "circle")
+        self.image = self.frames[0]
+
+class RangedEnemyStage3(RangedEnemy):
+    def __init__(self, x, y, hp, floor):
+        super().__init__(x, y, hp, floor)
+        # 🖼️👉 【可替换贴图：第三大关 远程敌人 】 
+        self.frames = load_frames(["ranged_enemy.png"], BLUE, (30, 30), "circle")
+        self.image = self.frames[0]
+
+class HealerEnemyStage3(HealerEnemy):
+    def __init__(self, x, y, hp, floor):
+        super().__init__(x, y, hp, floor)
+        # 🖼️👉 【可替换贴图：第三大关 回血敌人 】 
+        self.frames = load_frames(["healer_enemy.png"], PALE_YELLOW, (35, 35), "circle")
+        self.heal_frames = load_frames(["healer_cast1.png", "healer_cast2.png"], CYAN, (35, 35), "rect")
+        self.image = self.frames[0]
+
+class BossStage3(Boss):
+    def __init__(self, x, y, hp, floor, is_tutorial=False):
+        super().__init__(x, y, hp, floor, is_tutorial)
+        # 🖼️👉 【可替换贴图：第三大关的BOSS资源 】 
+        self.frames = load_frames(["a.jpg"], BOSS_COLOR, (100, 100), "rect")
+        self.cast_frames = load_frames(["boss_cast1.png", "boss_cast2.png"], (200, 0, 200), (100, 100), "rect")
+        self.boss_heal_frames = load_frames(["boss_heal1.png", "boss_heal2.png", "boss_heal3.png"], (0, 255, 100), (100, 100), "rect")
+        self.image = self.frames[0]
+
 
 class EnemyBullet(pygame.sprite.Sprite):
     def __init__(self, x, y, angle, speed, damage, b_type=0, is_boss=False):
@@ -1408,10 +1538,10 @@ def main():
 
     # 🖼️👉 【武器替换】
     global_weapon_images = {
-        "普通手枪": load_frames(["普通手枪.png"], GRAY, (90, 36), "rect")[0],
+        "普通手枪": load_frames(["普通手枪.png"], GRAY, (120, 70), "rect")[0],
         "强力手枪": load_frames(["heavy_pistol.png"], (100,100,100), (45, 16), "rect")[0],
-        "近战小刀": load_frames(["近战小刀.png"], WHITE, (128, 64), "rect")[0],
-        "大刀": load_frames(["大刀.png"], WHITE, (168,64), "rect")[0],
+        "近战小刀": load_frames(["近战小刀.png"], WHITE, (168, 80), "rect")[0],
+        "大刀": load_frames(["大刀.png"], WHITE, (190,74), "rect")[0],
         "机关枪": load_frames(["machine_gun.png"], (80,80,80), (60, 20), "rect")[0],
         "火焰枪": load_frames(["flamethrower.png"], (255,69,0), (55, 16), "rect")[0],
         "魔法弓": load_frames(["magic_bow.png"], (138, 43, 226), (40, 70), "rect")[0],
@@ -1463,11 +1593,31 @@ def main():
         p = Player(sx, sy) if player_instance is None else player_instance
         p.rect.center = (sx, sy)
         crates_group = pygame.sprite.Group()
+        pedestals_group = pygame.sprite.Group()
         
         special_room_idx = -1 
         if current_floor % 5 != 0 and len(room_list) > 1 and game_mode != "TUTORIAL":
             special_room_idx = random.randint(1, len(room_list)-1)
             
+            # 以一定的概率（大概三分之一的概率出现特色武器房/售卖小店基座）
+            if random.random() < 0.35:
+                shop_r_idx = random.randint(1, len(room_list)-1)
+                shop_room = room_list[shop_r_idx]
+                shop_weapons = [
+                    {"type": "pistol", "name": "强力手枪", "damage": 35, "cd": 250},
+                    {"type": "melee", "name": "大刀", "damage": 70, "range": 140, "cd": 800},
+                    {"type": "pistol", "name": "机关枪", "damage": 15, "cd": 100},
+                    {"type": "flamethrower", "name": "火焰枪", "damage": 15, "range": 150, "cd": 600},
+                    {"type": "bow", "name": "魔法弓", "damage": 65, "cd": 150},
+                    {"type": "grenade", "name": "手榴弹", "damage": 70, "cd": 600} 
+                ]
+                stand_items = random.sample(shop_weapons, min(3, len(shop_weapons)))
+                stand_positions_offX = [-100, 0, 100]
+                cx, cy = shop_room.cx * TILE_SIZE, shop_room.cy * TILE_SIZE
+                for s_i, stand_wpn in enumerate(stand_items):
+                    new_st = WeaponStand(cx + stand_positions_offX[s_i], cy - 60, stand_wpn, global_weapon_images.get(stand_wpn["name"]))
+                    pedestals_group.add(new_st)
+
         for i, r in enumerate(room_list):
             if i == 0: continue
             if i == special_room_idx:
@@ -1480,7 +1630,7 @@ def main():
                         cx, cy = random.randint(r.x+1, r.x+r.w-2), random.randint(r.y+1, r.y+r.h-2)
                         attempts += 1
                     if game_map[cy][cx] == 1: crates_group.add(Crate(cx*TILE_SIZE + TILE_SIZE//2, cy*TILE_SIZE + TILE_SIZE//2))
-        return p, pygame.sprite.Group(), pygame.sprite.Group(), pygame.sprite.Group(), pygame.sprite.Group(), pygame.sprite.Group(), [], False, pygame.sprite.Group(), crates_group, pygame.sprite.Group(), pygame.sprite.Group()
+        return p, pygame.sprite.Group(), pygame.sprite.Group(), pygame.sprite.Group(), pygame.sprite.Group(), pygame.sprite.Group(), [], False, pygame.sprite.Group(), crates_group, pygame.sprite.Group(), pygame.sprite.Group(), pedestals_group
 
     def init_training():
         nonlocal sandbags
@@ -1499,11 +1649,11 @@ def main():
         p.weapon_slots = len(p.weapons)
         sandbags.empty()
         sandbags.add(Sandbag(sx, sy - 150))
-        return p, pygame.sprite.Group(), pygame.sprite.Group(), pygame.sprite.Group(), pygame.sprite.Group(), pygame.sprite.Group(), [], False, pygame.sprite.Group(), pygame.sprite.Group(), pygame.sprite.Group(), pygame.sprite.Group()
+        return p, pygame.sprite.Group(), pygame.sprite.Group(), pygame.sprite.Group(), pygame.sprite.Group(), pygame.sprite.Group(), [], False, pygame.sprite.Group(), pygame.sprite.Group(), pygame.sprite.Group(), pygame.sprite.Group(), pygame.sprite.Group()
 
 
     clear_all_systems_for_new_game()
-    player, bullets, enemy_bullets, enemies, coins_group, portals, spawners, portal_spawned, effects, crates, items_group, grenades = reset_floor()
+    player, bullets, enemy_bullets, enemies, coins_group, portals, spawners, portal_spawned, effects, crates, items_group, grenades, pedestals = reset_floor()
 
     running = True
     while running:
@@ -1528,7 +1678,7 @@ def main():
                         is_victory = False
                         clear_all_systems_for_new_game()
                         shop_items = init_shop_items()
-                        player, bullets, enemy_bullets, enemies, coins_group, portals, spawners, portal_spawned, effects, crates, items_group, grenades = reset_floor()
+                        player, bullets, enemy_bullets, enemies, coins_group, portals, spawners, portal_spawned, effects, crates, items_group, grenades, pedestals = reset_floor()
                         game_state = "PLAYING"
                     elif play_campaign_hover: 
                         game_mode = "CAMPAIGN"
@@ -1536,7 +1686,7 @@ def main():
                         is_victory = False
                         clear_all_systems_for_new_game()
                         shop_items = init_shop_items()
-                        player, bullets, enemy_bullets, enemies, coins_group, portals, spawners, portal_spawned, effects, crates, items_group, grenades = reset_floor()
+                        player, bullets, enemy_bullets, enemies, coins_group, portals, spawners, portal_spawned, effects, crates, items_group, grenades, pedestals = reset_floor()
                         game_state = "PLAYING"
                     elif play_tutorial_hover:
                         game_mode = "TUTORIAL"
@@ -1544,7 +1694,7 @@ def main():
                         is_victory = False
                         clear_all_systems_for_new_game()
                         shop_items = init_shop_items()
-                        player, bullets, enemy_bullets, enemies, coins_group, portals, spawners, portal_spawned, effects, crates, items_group, grenades = reset_floor()
+                        player, bullets, enemy_bullets, enemies, coins_group, portals, spawners, portal_spawned, effects, crates, items_group, grenades, pedestals = reset_floor()
                         game_state = "PLAYING"
                     elif train_hover:
                         game_mode = "TRAINING"
@@ -1552,7 +1702,7 @@ def main():
                         clear_all_systems_for_new_game()
                         portal_spawned = True 
                         shop_items = init_shop_items()
-                        player, bullets, enemy_bullets, enemies, coins_group, portals, spawners, portal_spawned, effects, crates, items_group, grenades = init_training()
+                        player, bullets, enemy_bullets, enemies, coins_group, portals, spawners, portal_spawned, effects, crates, items_group, grenades, pedestals = init_training()
                         game_state = "TRAINING"
                         
                     elif diff_hover: game_state = "DIFF"
@@ -1568,12 +1718,12 @@ def main():
                             is_victory = False
                             clear_all_systems_for_new_game()
                             shop_items = init_shop_items()
-                            player, bullets, enemy_bullets, enemies, coins_group, portals, spawners, portal_spawned, effects, crates, items_group, grenades = reset_floor()
+                            player, bullets, enemy_bullets, enemies, coins_group, portals, spawners, portal_spawned, effects, crates, items_group, grenades, pedestals = reset_floor()
                             game_state = "PLAYING"
                         else:
                             clear_all_systems_for_new_game()
                             portal_spawned = True
-                            player, bullets, enemy_bullets, enemies, coins_group, portals, spawners, portal_spawned, effects, crates, items_group, grenades = init_training()
+                            player, bullets, enemy_bullets, enemies, coins_group, portals, spawners, portal_spawned, effects, crates, items_group, grenades, pedestals = init_training()
                             game_state = "TRAINING"
                     elif btn_main: game_state = "MENU"
                     elif btn_quit_pause: running = False
@@ -1667,6 +1817,28 @@ def main():
                     elif event.key == pygame.K_2: player.switch_weapon(1)
                     elif event.key == pygame.K_SPACE and game_state in ["PLAYING", "TRAINING"]: player.activate_skill()
                     elif event.key == pygame.K_f and game_state in ["PLAYING", "TRAINING"]:
+                        interacted = False
+                        
+                        for st in pedestals:
+                            if math.hypot(player.rect.centerx - st.rect.centerx, player.rect.centery - st.rect.centery) < 70:
+                                if coins >= st.price:
+                                    coins -= st.price
+                                    effects.add(DamageText(player.rect.centerx, player.rect.top-10, "购买成功", custom_color=(0, 255, 0), is_text=True))
+                                    # 和掉落物同款加物品背包判定置换法
+                                    if len(player.weapons) < player.weapon_slots:
+                                        player.weapons.append(st.w_data)
+                                        player.current_weapon = len(player.weapons) - 1
+                                    else:
+                                        w_img = global_weapon_images.get(player.weapons[player.current_weapon]["name"])
+                                        items_group.add(GroundItem(player.rect.centerx, player.rect.centery, "weapon", player.weapons[player.current_weapon], w_img))
+                                        player.weapons[player.current_weapon] = st.w_data
+                                    st.kill()
+                                else:
+                                    effects.add(DamageText(player.rect.centerx, player.rect.top-10, "金币不足", custom_color=(255, 68, 68), is_text=True))
+                                interacted = True
+                                break
+                        if interacted: continue
+
                         for item in items_group:
                             if math.hypot(player.rect.centerx - item.rect.centerx, player.rect.centery - item.rect.centery) < 60:
                                 if item.item_type == "potion":
@@ -1731,7 +1903,7 @@ def main():
                     is_victory = True; game_state = "RESULT"
                     pygame.display.flip(); clock.tick(FPS); continue
 
-                player, bullets, enemy_bullets, enemies, coins_group, portals, spawners, portal_spawned, effects, crates, items_group, grenades = reset_floor(player)
+                player, bullets, enemy_bullets, enemies, coins_group, portals, spawners, portal_spawned, effects, crates, items_group, grenades, pedestals = reset_floor(player)
                 
  
                 clear_all_systems_for_new_game()
@@ -1825,6 +1997,8 @@ def main():
                         if atk_type == "melee": screen_shake = 6
 
             if game_state == "PLAYING":
+                current_stage = (current_floor - 1) // 10 + 1  
+                
                 room_info_text, room_info_color = f"第[{current_floor}]层 ", GREEN
                 for i, room in enumerate(room_list):
                     if room.is_player_inside(player.rect.centerx, player.rect.centery) and not room.cleared and not is_battle_locked:
@@ -1859,14 +2033,33 @@ def main():
                         s.timer -= 1
                         if s.timer <= 0:
                             if s.e_type == "boss":
-                                #BOSS血量
-                                enemies.add(Boss(s.x, s.y, 200 + current_floor*200, current_floor, is_tutorial=(game_mode=="TUTORIAL")))
+                                #BOSS血量与当前所处的第几大阶段调度区分BOSS派生实例类型
+                                boss_hp = 200 + current_floor*200
+                                is_tut = (game_mode=="TUTORIAL")
+                                if current_stage == 1:
+                                    enemies.add(Boss(s.x, s.y, boss_hp, current_floor, is_tut))
+                                elif current_stage == 2:
+                                    enemies.add(BossStage2(s.x, s.y, boss_hp, current_floor, is_tut))
+                                else: 
+                                    enemies.add(BossStage3(s.x, s.y, boss_hp, current_floor, is_tut))
+
                             elif s.e_type == "healer":
-                                enemies.add(HealerEnemy(s.x, s.y, 30 + current_floor*10, current_floor))
+                                cur_hp = 30 + current_floor*10
+                                if current_stage == 1: enemies.add(HealerEnemy(s.x, s.y, cur_hp, current_floor))
+                                elif current_stage == 2: enemies.add(HealerEnemyStage2(s.x, s.y, cur_hp, current_floor))
+                                else: enemies.add(HealerEnemyStage3(s.x, s.y, cur_hp, current_floor))
+                                
                             elif s.e_type == "ranged":
-                                enemies.add(RangedEnemy(s.x, s.y, 30 + current_floor*15, current_floor))
+                                cur_hp = 30 + current_floor*15
+                                if current_stage == 1: enemies.add(RangedEnemy(s.x, s.y, cur_hp, current_floor))
+                                elif current_stage == 2: enemies.add(RangedEnemyStage2(s.x, s.y, cur_hp, current_floor))
+                                else: enemies.add(RangedEnemyStage3(s.x, s.y, cur_hp, current_floor))
                             else: 
-                                enemies.add(Enemy(s.x, s.y, 30 + current_floor*20, current_floor))
+                                cur_hp = 30 + current_floor*20
+                                if current_stage == 1: enemies.add(Enemy(s.x, s.y, cur_hp, current_floor))
+                                elif current_stage == 2: enemies.add(EnemyStage2(s.x, s.y, cur_hp, current_floor))
+                                else: enemies.add(EnemyStage3(s.x, s.y, cur_hp, current_floor))
+                                
                             spawners.remove(s)
                             
                     if not spawners: spawn_pending = False
@@ -1983,6 +2176,9 @@ def main():
 
             for crate in crates:
                 crate.draw(screen, camera_x, camera_y)
+                
+            for pedestal in pedestals:
+                pedestal.draw(screen, camera_x, camera_y)
 
             for e in list(items_group)+list(sandbags)+list(coins_group)+list(enemies)+list(bullets)+list(enemy_bullets)+list(grenades):
                 screen.blit(e.image, (e.rect.x-camera_x, e.rect.y-camera_y))
@@ -2024,6 +2220,10 @@ def main():
                 screen.blit(mask, (0, 0))
 
             if game_state in ["PLAYING", "TRAINING"]:
+                for st in pedestals:
+                    if math.hypot(player.rect.centerx - st.rect.centerx, player.rect.centery - st.rect.centery) < 70:
+                        st.draw_prompt(screen, camera_x, camera_y)
+                        
                 for item in items_group:
                     if math.hypot(player.rect.centerx - item.rect.centerx, player.rect.centery - item.rect.centery) < 60:
                         item.draw_prompt(screen, camera_x, camera_y)
