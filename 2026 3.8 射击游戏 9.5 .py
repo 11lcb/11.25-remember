@@ -124,6 +124,30 @@ class ExplosionEffect(pygame.sprite.Sprite):
         draw_y = self.y - self.max_radius - camera_y
         surface.blit(img, (draw_x, draw_y))
 
+class LaserBeamEffect(pygame.sprite.Sprite):
+    def __init__(self, x, y, angle, length, is_skill):
+        super().__init__()
+        self.x, self.y = x, y
+        self.angle, self.length = angle, length
+        self.lifetime = 15
+        self.timer = 0
+        self.color = (255, 80, 80) if not is_skill else (180, 50, 255)
+
+    def update(self):
+        self.timer += 1
+        if self.timer >= self.lifetime: self.kill()
+
+    def draw(self, surface, camera_x, camera_y):
+        alpha = int(255 * (1 - self.timer / self.lifetime))
+        s = pygame.Surface((int(self.length), 40), pygame.SRCALPHA)
+        pygame.draw.rect(s, (*self.color, alpha), (0, 10, int(self.length), 20), border_radius=10)
+        pygame.draw.rect(s, (255, 255, 255, alpha), (0, 15, int(self.length), 10), border_radius=5)
+        
+        rotated = pygame.transform.rotate(s, math.degrees(-self.angle))
+        rect = rotated.get_rect(center=(self.x - camera_x + math.cos(self.angle)*(self.length/2), 
+                                        self.y - camera_y + math.sin(self.angle)*(self.length/2)))
+        surface.blit(rotated, rect.topleft)
+
 class MeleeSwingEffect(pygame.sprite.Sprite):
     def __init__(self, start_x, start_y, attack_range, angle, weapon_img, is_skill_active, boss_override_color=None):
         super().__init__()
@@ -249,20 +273,19 @@ class BossSwordAuraBullet(pygame.sprite.Sprite):
         self.size = int(range_scale)
         self.image = pygame.Surface((self.size * 2, self.size * 2), pygame.SRCALPHA)
         
-        # 🖼️👉 【二段特殊Boss攻击“红色弧形贴图”】 
-
+        # 🖼️👉 【二段特殊Boss攻击波：可更换弧形贴图】 
         points = []
-        for a in range(-60, 61, 5):  # 用扇形的计算点列切出一片锋利向外的扇形弧光线段
+        for a in range(-60, 61, 5): 
             rad = math.radians(a)
             px = self.size + math.cos(rad) * (self.size * 0.5) 
             py = self.size + math.sin(rad) * (self.size * 0.5)
             points.append((px, py))
         
-        if len(points) >= 2: # 厚度为 10，形成真正的厚重切割气刃感
+        if len(points) >= 2: 
             pygame.draw.lines(self.image, (255, 100, 100, 200), False, points, 10)
-        
-        # 朝向目标正确进行实时图像校对扭曲：
+        #剑气的碰撞体积
         self.image = pygame.transform.rotate(self.image, math.degrees(-angle))
+        self.rect = self.image.get_rect(center=(x, y)).inflate(-int(self.size * 1.2), -int(self.size * 1.2))
         self.rect = self.image.get_rect(center=(x, y))
         self.speed, self.damage = speed * difficulty_mult["spd"], int(damage)
         self.vx, self.vy = math.cos(angle) * self.speed, math.sin(angle) * self.speed
@@ -275,6 +298,7 @@ class BossSwordAuraBullet(pygame.sprite.Sprite):
         self.timer -= 1
         if is_wall(self.rect.centerx, self.rect.centery) or self.timer <= 0:
             self.kill()
+
 class Sandbag(pygame.sprite.Sprite):
     def __init__(self, x, y):
         super().__init__()
@@ -439,6 +463,10 @@ class Player(pygame.sprite.Sprite):
         self.has_orbit_shield = False
         self.orbit_shield_active = False
         self.orbit_shield_timer = 0
+
+        self.laser_charge_start_time = 0
+        self.laser_charge_duration = 0
+        self.is_laser_charging = False
         
         self.weapon_slots, self.current_weapon = 2, 0
         self.weapons = [
@@ -535,16 +563,24 @@ class Player(pygame.sprite.Sprite):
         return False
 
     def switch_weapon(self, direction):
-        if len(self.weapons) > 0: self.current_weapon = (self.current_weapon + direction) % len(self.weapons); self.charge_start_time = 0 
+        if len(self.weapons) > 0: self.current_weapon = (self.current_weapon + direction) % len(self.weapons); self.charge_start_time = 0; self.laser_charge_start_time = 0
 
     def process_attack(self, mouse_held, mx, my, camera_x, camera_y, bullets_group, enemy_bullets_group, effects_group, global_weapon_images, enemies_group, grenades_group, crates_group=None, items_group=None, coins_group=None):
         if not self.weapons: return []
         
+        mouse_held_right = pygame.mouse.get_pressed()[2]
+        current_time = pygame.time.get_ticks()
+
         if self.stolen_weap_idx == self.current_weapon:
-            if mouse_held and pygame.time.get_ticks() % 60 == 0:
-                effects_group.add(DamageText(self.rect.centerx, self.rect.top - 25, "此武器已被冻缴使用", custom_color=(255,50,50), is_text=True))
-            return []
+            self.is_laser_charging = False
+            self.laser_charge_start_time = 0
+            self.laser_charge_duration = 0
+            self.charge_start_time = 0 
+            self.charge_duration = 0
             
+            if (mouse_held or mouse_held_right) and pygame.time.get_ticks() % 60 == 0:
+                effects_group.add(DamageText(self.rect.centerx, self.rect.top - 25, "此武器已被缴械", custom_color=(255,50,50), is_text=True))
+            return []
         weapon = self.weapons[self.current_weapon]
         cd_multiplier = max(0.1, 1.0 - (self.bonus_cd_reduction / 100.0))
         actual_cd = int(weapon["cd"] * cd_multiplier)
@@ -568,7 +604,39 @@ class Player(pygame.sprite.Sprite):
         shoot_y = base_shoot_y + math.sin(perp_angle) * 8
         clone_x = base_shoot_x - math.cos(perp_angle) * 8
         clone_y = base_shoot_y - math.sin(perp_angle) * 8
-        current_time = pygame.time.get_ticks()
+
+        # --- 新增的长按右键死光突袭能力，任何阶段有效覆盖原始连射 ---
+        # 【机制限制】：仅仅归纳只有底层逻辑中属于完全投射子弹体系的（远程轻重手枪，机枪或长弓）准许汇聚充能 
+        can_laser = (weapon["type"] in ["pistol", "bow"])
+
+        # --- 新增的长按右键死光突袭能力，任何阶段有效覆盖原始连射 ---
+        if mouse_held_right and can_laser:
+            self.is_laser_charging = True
+            if self.laser_charge_start_time == 0: self.laser_charge_start_time = current_time
+            self.laser_charge_duration = (current_time - self.laser_charge_start_time) * self.charge_speed_mult
+            return attacks 
+        else:
+            self.is_laser_charging = False
+            if self.laser_charge_start_time > 0:
+                charge = self.laser_charge_duration
+                self.laser_charge_start_time = 0
+                self.laser_charge_duration = 0
+                if charge > 400 and can_laser: # 限定按压最少400毫秒门槛
+                    # 长度
+                    laser_length = min(1500, 50 + (charge/3500.0) * 1200)
+                    # 👇【全新动态伤害核心】：蓄力比例最高为1.0（即2.5秒达到满蓄力）
+                    charge_ratio = min(1.0, charge / 5500.0)
+                    # 基础倍率为 2倍，随着蓄力逐渐增加，满蓄力时额外增加 4倍（即最高能达到 6倍伤害）
+                    damage_multiplier = 2.0 + charge_ratio * 8.0 
+                    laser_dmg = int(actual_dmg * damage_multiplier)
+                    effects_group.add(LaserBeamEffect(self.rect.centerx, self.rect.centery, angle, laser_length, is_skill))
+                    attacks.append(("laser", self.rect.centerx, self.rect.centery, angle, laser_length, laser_dmg))
+                    if is_skill:
+                        effects_group.add(LaserBeamEffect(clone_x, clone_y, angle, laser_length, True))
+                        attacks.append(("laser", clone_x, clone_y, angle, laser_length, laser_dmg))
+                    return attacks
+        
+        # ----------- 往下是原本的标准各种武器发射判断 --------
 
         if weapon["type"] == "bow":
             if mouse_held:
@@ -689,7 +757,13 @@ class Player(pygame.sprite.Sprite):
             pygame.draw.rect(surface, GRAY, (bar_x, bar_y, bar_w, bar_h))
             c_color = RED if charge_ratio >= 1.0 else YELLOW
             pygame.draw.rect(surface, c_color, (bar_x, bar_y, int(bar_w * charge_ratio), bar_h))
-
+            
+        if getattr(self, "is_laser_charging", False) and self.laser_charge_duration > 0 and weapon["type"] in ["pistol", "bow"]:
+            # 【红点延拓动画修改拉低进度阈值倍缩配合同等于实体计算区倍速 (除于 2500)，体验逐渐发亮增深的效果】
+            aim_len = min(1500, 50 + (self.laser_charge_duration/3500.0) * 1200)
+            end_x = base_wx + math.cos(angle) * aim_len
+            end_y = base_wy + math.sin(angle) * aim_len
+            pygame.draw.line(surface, (255, 100, 100, 180), (base_wx, base_wy), (end_x, end_y), max(1, int(self.laser_charge_duration/300)))
 class MagicArrow(pygame.sprite.Sprite):
     def __init__(self, x, y, angle, damage, player, enemies_group, is_skill=False):
         super().__init__()
@@ -861,7 +935,7 @@ class Enemy(pygame.sprite.Sprite):
                 self.hp -= (amount - dmg_taken)
             else: self.hp -= amount
 
-    def update(self, px, py, crates_group=None, enemies_group=None, effects_group=None):
+    def update(self, px, py, crates_group=None, enemies_group=None, effects_group=None, player=None, **kwargs):
         dx, dy = px - self.rect.centerx, py - self.rect.centery
         dist = math.hypot(dx, dy)
         if dist > 0:
@@ -906,7 +980,7 @@ class RangedEnemy(Enemy):
         self.image = self.frames[0]
         self.attack_range, self.attack_cd, self.attack_timer, self.is_attacking = 400, max(80, 150 - floor * 5), 0, False
 
-    def update(self, px, py, enemy_bullets_group=None, crates_group=None, enemies_group=None, effects_group=None):
+    def update(self, px, py, enemy_bullets_group=None, crates_group=None, enemies_group=None, effects_group=None, player=None, **kwargs):
         dist = math.hypot(px - self.rect.centerx, py - self.rect.centery)
         self.attack_timer += 1
         if dist < self.attack_range and self.attack_timer >= self.attack_cd:
@@ -915,7 +989,7 @@ class RangedEnemy(Enemy):
                 enemy_bullets_group.add(EnemyBullet(self.rect.centerx, self.rect.centery, math.atan2(py - self.rect.centery, px - self.rect.centerx), speed=5, damage=self.damage, b_type=0))
         else: self.is_attacking = False
         if not self.is_attacking and dist > 50: 
-            super().update(px, py, crates_group)
+            super().update(px, py, crates_group=crates_group, enemies_group=enemies_group, effects_group=effects_group, player=player)
 
 class HealerEnemy(Enemy):
     def __init__(self, x, y, hp, floor):
@@ -930,7 +1004,7 @@ class HealerEnemy(Enemy):
         self.heal_cd = 120 
         self.casting_timer = 0
         
-    def update(self, px, py, crates_group=None, enemies_group=None, effects_group=None):
+    def update(self, px, py, crates_group=None, enemies_group=None, effects_group=None, player=None, **kwargs):
         if self.casting_timer > 0:
             self.casting_timer -= 1
             f_idx = min(int(((120 - self.casting_timer) / 120) * len(self.heal_frames)), len(self.heal_frames)-1)
@@ -976,7 +1050,8 @@ class Boss(Enemy):
             self.damage = 2
 
         self.floor = floor
-        self.max_shield = self.max_hp * 0.3  
+        #护盾厚度设置
+        self.max_shield = self.max_hp * 0.5  
         self.shield = self.max_shield
         self.shield_broken = False 
         
@@ -1020,11 +1095,12 @@ class Boss(Enemy):
         if floor >= 15: self.bullet_weights = [0.6, 0.4, 0.0]
         if floor >= 25: self.bullet_weights = [0.4, 0.3, 0.3]
 
-    def update(self, px, py, enemy_bullets_group=None, effects_group=None, player=None, crates_group=None, enemies_group=None):
+    def update(self, px, py, enemy_bullets_group=None, effects_group=None, player=None, crates_group=None, enemies_group=None, **kwargs):
         if self.shield <= 0:
             self.shield_broken = True
             self.shield = 0
         if not self.shield_broken and self.shield < self.max_shield:
+            #护盾恢复速度
             regen_speed = 500 + self.floor * 30 
             self.shield = min(self.max_shield, self.shield + regen_speed / 120)
 
@@ -1090,7 +1166,7 @@ class Boss(Enemy):
                     if not is_wall(nx, ny): self.rect.centerx, self.rect.centery = nx, ny
         else:
             self.image = self.frames[0]
-            super().update(px, py, crates_group)
+            super().update(px, py, crates_group=crates_group, enemies_group=enemies_group, effects_group=effects_group, player=player)
             
         self.shoot_timer += 1
         if self.shoot_timer >= self.shoot_cd and enemy_bullets_group is not None:
@@ -1132,7 +1208,7 @@ class Boss(Enemy):
             surface.blit(warning_txt, (SCREEN_WIDTH//2 - warning_txt.get_width()//2, 85))
 
 
-# === 分层与进度的分关专用独立兵种类设定区（全额继承基类并重设内容替换空槽以便贴合换贴图使用和改造玩法功能点保留！） ===
+# === 分层与进度的分关专用独立兵种类设定区 ===
 
 class EnemyStage2(Enemy):
     def __init__(self, x, y, hp, floor):
@@ -1140,13 +1216,53 @@ class EnemyStage2(Enemy):
         # 🖼️👉 【可替换贴图：第二大关 近战敌人】
         self.frames = load_frames(["enemy_run.png"], RED, (35, 35), "circle")
         self.image = self.frames[0]
+        self.speed = 1.1 + (floor * 0.1) * difficulty_mult["spd"] 
+        self.melee_cd = 100
+        self.melee_timer = 0
+        self.weapon_img = load_frames(["soldier_blade.png"], GRAY, (40, 15), "rect")[0]
 
-class RangedEnemyStage2(RangedEnemy):
+    def update(self, px, py, crates_group=None, enemies_group=None, effects_group=None, player=None, **kwargs):
+        dx, dy = px - self.rect.centerx, py - self.rect.centery
+        dist = math.hypot(dx, dy)
+        
+        if dist > 55:
+            vx, vy = (dx / dist) * self.speed, (dy / dist) * self.speed
+            self.rect.centerx += vx
+            if is_wall(self.rect.centerx + (15 if vx>0 else -15), self.rect.centery) or (crates_group and pygame.sprite.spritecollideany(self, crates_group)):
+                self.rect.centerx -= vx
+            self.rect.centery += vy
+            if is_wall(self.rect.centerx, self.rect.centery + (15 if vy>0 else -15)) or (crates_group and pygame.sprite.spritecollideany(self, crates_group)):
+                self.rect.centery -= vy
+                
+        self.melee_timer += 1
+        if self.melee_timer >= self.melee_cd and dist < 85:
+            self.melee_timer = 0
+            ang = math.atan2(dy, dx)
+            if effects_group is not None:
+                effects_group.add(MeleeSwingEffect(self.rect.centerx, self.rect.centery, 70, ang, self.weapon_img, False, boss_override_color=(200,80,80)))
+
+class ShieldEnemyStage2(Enemy):
     def __init__(self, x, y, hp, floor):
         super().__init__(x, y, hp, floor)
-        # 🖼️👉 【可替换贴图：第二大关 远程敌人 】 
-        self.frames = load_frames(["ranged_enemy.png"], BLUE, (30, 30), "circle")
+        # 🖼️👉 【可替换贴图：第二大关 盾兵 】 
+        self.frames = load_frames(["enemy_run.png"], DARK_GRAY, (35, 35), "circle")
         self.image = self.frames[0]
+        self.is_shield_soldier = True 
+        self.shield_img = load_frames(["shield_black.png"], BLACK, (15, 50), "rect")[0]
+        self.facing_angle = 0
+        self.speed = 0.9 + (floor * 0.1) * difficulty_mult["spd"] 
+
+    def update(self, px, py, crates_group=None, enemies_group=None, effects_group=None, player=None, **kwargs):
+        super().update(px, py, crates_group=crates_group, enemies_group=enemies_group, effects_group=effects_group, player=player)
+        self.facing_angle = math.atan2(py - self.rect.centery, px - self.rect.centerx)
+
+    def draw_hp(self, surface, camera_x, camera_y):
+        super().draw_hp(surface, camera_x, camera_y)
+        sh = pygame.transform.rotate(self.shield_img, math.degrees(-self.facing_angle))
+        ox = math.cos(self.facing_angle) * 18
+        oy = math.sin(self.facing_angle) * 18
+        rect = sh.get_rect(center=(self.rect.x - camera_x + self.rect.width//2 + ox, self.rect.y - camera_y + self.rect.height//2 + oy))
+        surface.blit(sh, rect)
 
 class HealerEnemyStage2(HealerEnemy):
     def __init__(self, x, y, hp, floor):
@@ -1160,26 +1276,29 @@ class BossStage2(Boss):
     def __init__(self, x, y, hp, floor, is_tutorial=False):
         super().__init__(x, y, hp, floor, is_tutorial)
         self.is_senior = (floor % 10 == 0) and not is_tutorial
-        
+        #BOSS贴图
         if self.is_senior:
-            #【可替换贴图：第二大关-高级 BOSS】
             self.frames = load_frames(["boss_st2_senior.png"], BOSS_COLOR, (120, 120), "rect")
-            #  位移大招 "phantom_dash" 冲刺
-            self.available_skills = ["heavy_slash", "steal_weapon", "sword_aura_buff", "phantom_dash"]
+            # 贴图 👇  盾和冲刺
+            self.available_skills = ["heavy_slash", "steal_weapon", "sword_aura_buff", "phantom_dash", "invincible_shield"]
         else:
-            # 🖼️👉 【可替换贴图：第二大关-初级 BOSS】
             self.frames = load_frames(["boss_st2_junior.png"], BOSS_COLOR, (100, 100), "rect")
-            #  位移大招 "phantom_dash" 
-            self.available_skills = ["heavy_slash", "phantom_dash"]  
+            self.available_skills = ["heavy_slash", "phantom_dash", "invincible_shield"]  
 
         self.image = self.frames[0]
         
-        #  大刀占位贴图（之后如果有png贴图也可以在此加载）
-        self.boss_blade_img = load_frames(["boss_blade.png"], (255, 100, 100), (140, 40), "rect")[0]
+        # 大刀占位贴图
+        self.boss_blade_img = load_frames(["boss_blade.png"], (255, 100, 100), (140, 40), "rect")
+
+        if type(self.boss_blade_img) is list:
+            self.boss_blade_img = self.boss_blade_img[0]
         
-        # BOSS血量 计算
-        self.max_hp = 800 * (1 + floor * 0.2) 
+        # BOSS 血量
+        self.max_hp = 3500 * (1 + floor * 0.3) 
         self.hp = self.max_hp
+        # boss 盾
+        self.max_shield = self.max_hp * 0.3  
+        self.shield = self.max_shield
 
         self.melee_cd = max(35, 90 - floor * 3)
         self.melee_timer = 0
@@ -1191,30 +1310,42 @@ class BossStage2(Boss):
         self.stolen_weap_data = None 
         self.has_aura_buff = 0
 
-        # ✨ 新增：用于存放跳跃/位移的数据变量
         self.phantom_dash_warn = 0
         self.dash_land_x = x
         self.dash_land_y = y
+
+        self.is_shield_soldier = False
+        self.invincible_shield_timer = 0 
+        self.facing_angle = 0
+        # 图片  盾图
+        self.huge_shield_img = load_frames(["shield_black.png"], BLACK, (40, 140), "rect")[0]
+
         
-    def update(self, px, py, enemy_bullets_group=None, effects_group=None, player=None, crates_group=None, enemies_group=None):
+    def update(self, px, py, enemy_bullets_group=None, effects_group=None, player=None, crates_group=None, enemies_group=None, **kwargs):
+        # 随时索敌玩家坐标从而用于偏转黑盾面向！
+        self.facing_angle = math.atan2(py - self.rect.centery, px - self.rect.centerx)
+
         if self.shield <= 0:
             self.shield_broken = True; self.shield = 0
         if not self.shield_broken and self.shield < self.max_shield:
             regen_speed = 500 + self.floor * 30 
             self.shield = min(self.max_shield, self.shield + regen_speed / 120)
 
+        if self.invincible_shield_timer > 0:
+            self.invincible_shield_timer -= 1
+            self.is_shield_soldier = True 
+        else:
+            self.is_shield_soldier = False 
+
         # ---------------- 特殊硬直与起跳锁敌状态 ----------------
         
-        # 🌟 正在执行起飞/落地技能！此状态禁止走路和攻击
         if self.phantom_dash_warn > 0:
             self.phantom_dash_warn -= 1
             if self.phantom_dash_warn <= 0:
                 self.skill_text = ""
-                # 执行位移 (顺移到选定的安全点位)
                 self.rect.centerx = self.dash_land_x
                 self.rect.centery = self.dash_land_y
                 
-                # 落地后释放范围顺劈大砍，范围 130！
                 fall_atk_rng = 130
                 fall_atk_dmg = self.damage * 2.0
                 fall_ang = math.atan2(py - self.dash_land_y, px - self.dash_land_x)
@@ -1222,11 +1353,10 @@ class BossStage2(Boss):
                     effects_group.add(MeleeSwingEffect(self.dash_land_x, self.dash_land_y, fall_atk_rng, fall_ang, self.boss_blade_img, True, boss_override_color=(255,80,80)))
                 
                 if player and math.hypot(player.rect.centerx - self.dash_land_x, player.rect.centery - self.dash_land_y) <= fall_atk_rng:
-                    # 前摇判定锥形区角度内即可击中玩家
                     df = (math.atan2(player.rect.centery - self.dash_land_y, player.rect.centerx - self.dash_land_x) - fall_ang + math.pi) % (2*math.pi) - math.pi
                     if abs(df) <= math.pi/2.5:
                         player.take_damage(fall_atk_dmg, effects_group)
-                        screen_shake = 15  # 给点画面震动冲击感
+                        screen_shake = 15 
             return 
             
         if self.boss2_heavy_warn > 0:
@@ -1263,7 +1393,6 @@ class BossStage2(Boss):
         dx, dy = px - self.rect.centerx, py - self.rect.centery
         dist = math.hypot(dx, dy)
         
-        # BOSs 速度,只修改最后倍率,不要动基础逻辑!!!!
         if dist > 85:
             vx, vy = (dx / dist) * self.speed * 0.45, (dy / dist) * self.speed * 0.45
             self.rect.centerx += vx
@@ -1272,7 +1401,6 @@ class BossStage2(Boss):
             if is_wall(self.rect.centerx, self.rect.centery + (30 if vy>0 else -30)): self.rect.centery -= vy
 
         self.melee_timer += 1
-        # 远射感测限制：有了剑气 Buff 后范围扩张到 550 进行发射连携砍！
         fire_threshold = 550 if self.has_aura_buff > 0 else 140
         if self.melee_timer >= self.melee_cd and dist < fire_threshold:
             self.melee_timer = 0
@@ -1285,7 +1413,6 @@ class BossStage2(Boss):
                 if abs(df) <= math.pi/2.5: player.take_damage(self.damage * 1.5, effects_group)
                 
             if self.has_aura_buff > 0 and enemy_bullets_group is not None:
-                # 剑气设置,最后面是伤害,速度,大小
                 enemy_bullets_group.add(BossSwordAuraBullet(self.rect.centerx, self.rect.centery, ang, self.damage * 1.8, 8, 90))
                 
         self.skill_timer += 1
@@ -1298,11 +1425,10 @@ class BossStage2(Boss):
                 self.heavy_aim_angle = math.atan2(py - self.rect.centery, px - self.rect.centerx)
                 self.skill_text = "【大范围劈砍】"
             
-            # 👇✨ 全新落点预测抓取
             elif pick == "phantom_dash":
-                self.phantom_dash_warn = 60  # 给 60帧 即大约一秒进行预判提示
+                self.phantom_dash_warn = 60  
                 valid_spot = False
-                target_dist = 60 # 定位落入玩家身后/旁侧避免死磕建模挤不出来
+                target_dist = 60 
                 for _ang in [0, 90, 180, 270, 45, 135]:
                     rad = math.radians(_ang)
                     tx = px + math.cos(rad) * target_dist
@@ -1312,9 +1438,13 @@ class BossStage2(Boss):
                         valid_spot = True
                         break
                 
-                # 如果没选出安全空位子只能贴着砸头去咯！
                 if not valid_spot: self.dash_land_x, self.dash_land_y = px, py  
-                self.skill_text = "【突进】"
+                self.skill_text = "【突进猛压】"
+
+            # 👇 新护盾
+            elif pick == "invincible_shield":
+                self.invincible_shield_timer = 15 * 60   # 持续十五秒
+                self.skill_text = "【坚固堡垒】免疫远攻"
                 
             elif pick == "steal_weapon" and player and len(player.weapons) > 0:
                 robbed_id = random.randint(0, len(player.weapons)-1)
@@ -1326,7 +1456,7 @@ class BossStage2(Boss):
                 
             elif pick == "sword_aura_buff":
                 self.has_aura_buff = 600 
-                self.skill_text = "【剑气】"
+                self.skill_text = "【附带剑气狂斩】"
 
     def kill(self):
         super().kill()
@@ -1334,7 +1464,15 @@ class BossStage2(Boss):
     def draw_hp(self, surface, camera_x, camera_y):
         super().draw_hp(surface, camera_x, camera_y)
         
-        # --------- 原来的巨大砸地警报图示绘制 --------- 
+        # -------- 画那把举起来的大黑实体防御盾！ ---------
+        if getattr(self, "invincible_shield_timer", 0) > 0:
+            sh = pygame.transform.rotate(self.huge_shield_img, math.degrees(-self.facing_angle))
+            # 根据其巨大躯体拉开了格挡身距距离到圆心的距离: 60
+            ox = math.cos(self.facing_angle) * 60 
+            oy = math.sin(self.facing_angle) * 60
+            rect = sh.get_rect(center=(self.rect.centerx - camera_x + ox, self.rect.centery - camera_y + oy))
+            surface.blit(sh, rect)
+        
         if self.boss2_heavy_warn > 0:
             if (self.boss2_heavy_warn // 10) % 2 == 0:
                 r_surf = pygame.Surface((440, 440), pygame.SRCALPHA)
@@ -1347,24 +1485,19 @@ class BossStage2(Boss):
                 if len(pnts) > 2: pygame.draw.polygon(r_surf, (255, 0, 0, 100), pnts)
                 surface.blit(r_surf, (self.rect.centerx - h_atk_range - camera_x, self.rect.centery - h_atk_range - camera_y))
                 
-        # --------- 🚨 新技能闪身压顶区域底座的提示绘制！ ---------
         if self.phantom_dash_warn > 0:
-            blink_rad = 130 # 圆的辐射提示大小对应实体落地下砸宽界
+            blink_rad = 130 
             circ_sur = pygame.Surface((blink_rad*2, blink_rad*2), pygame.SRCALPHA)
-            # 铺层虚无弱红落点危险暗示薄毯:
             pygame.draw.circle(circ_sur, (255, 50, 50, 60), (blink_rad, blink_rad), blink_rad) 
-            
-            # 画一个带有逐渐向心缩小挤压时延预示迫降效果的外包圆：
             in_r = int(blink_rad * (self.phantom_dash_warn / 60))
             if in_r > 5:
                 pygame.draw.circle(circ_sur, (255, 100, 100, 200), (blink_rad, blink_rad), in_r, 4) 
             
-            # 再落个定准心的红心靶圈：
             pygame.draw.circle(circ_sur, (255, 80, 80, 180), (blink_rad, blink_rad), 5)
             pygame.draw.line(circ_sur, (255, 80, 80, 180), (blink_rad-10, blink_rad), (blink_rad+10, blink_rad), 2)
             pygame.draw.line(circ_sur, (255, 80, 80, 180), (blink_rad, blink_rad-10), (blink_rad, blink_rad+10), 2)
-            
-            surface.blit(circ_sur, (self.dash_land_x - blink_rad - camera_x, self.dash_land_y - blink_rad - camera_y))                
+            surface.blit(circ_sur, (self.dash_land_x - blink_rad - camera_x, self.dash_land_y - blink_rad - camera_y))
+
 class EnemyStage3(Enemy):
     def __init__(self, x, y, hp, floor):
         super().__init__(x, y, hp, floor)
@@ -1597,7 +1730,7 @@ def generate_map(floor, tutorial=False):
                 for c_idx in range(x, x + w): game_map[r_idx][c_idx] = 1
             
             r = Room(x, y, w, h, is_start)
-            r.ranged_enemy_ratio = min(0.7, 0.3 + floor * 0.05)
+            r.ranged_enemy_ratio = min(0.35, 0.2 + floor * 0.05)
             
             if is_shop_room:
                 r.is_shop = True
@@ -1955,7 +2088,7 @@ def main():
                 if game_state == "MENU":
                     if play_hover: 
                         game_mode = "ENDLESS"
-                        coins, total_coins, current_floor, acquired_talents, shop_page = 99999, 0, 20, [], 0
+                        coins, total_coins, current_floor, acquired_talents, shop_page = 999999, 0, 20, [], 0
                         is_victory = False
                         clear_all_systems_for_new_game()
                         shop_items = init_shop_items()
@@ -2207,6 +2340,10 @@ def main():
             if keys[pygame.K_w]: dy -= current_spd
             if keys[pygame.K_s]: dy += current_spd
 
+            # 长按蓄力状态阻挡行走
+            if getattr(player, "is_laser_charging", False):
+                dx, dy = 0, 0
+
             if dx != 0:
                 player.rect.centerx += dx
                 if is_wall(player.rect.centerx + (15 if dx>0 else -15), player.rect.centery) or pygame.sprite.spritecollideany(player, crates): player.rect.centerx -= dx
@@ -2236,7 +2373,10 @@ def main():
                 if dist <= atk_range:
                     ang = math.atan2(target.rect.centery - sy, target.rect.centerx - sx)
                     diff = (ang - atk_angle + math.pi) % (2*math.pi) - math.pi
-                    angle_limit = math.pi/2.5 if atk_type == "melee" else math.pi/4
+                    if atk_type == "melee": angle_limit = math.pi/2.5
+                    elif atk_type == "flame": angle_limit = math.pi/4
+                    elif atk_type == "laser": angle_limit = math.pi/20
+                    else: angle_limit = math.pi/4
                     if abs(diff) <= angle_limit: return True
                 return False
 
@@ -2260,6 +2400,8 @@ def main():
                             enemy.burn_duration = 180  
                             enemy.burn_timer = 60      
                             enemy.burn_dmg = enemy.max_hp * 0.10 
+                        if atk_type == "laser":
+                            screen_shake = 3
 
                         effects.add(DamageText(enemy.rect.centerx, enemy.rect.top, dmg))
                         if enemy.hp <= 0:
@@ -2273,6 +2415,7 @@ def main():
                     if hit_target(bag, atk_data):
                         bag.take_damage(dmg, effects)
                         if atk_type == "melee": screen_shake = 6
+                        if atk_type == "laser": screen_shake = 2
 
             if game_state == "PLAYING":
                 current_stage = (current_floor - 1) // 10 + 1  
@@ -2316,7 +2459,7 @@ def main():
                         s.timer -= 1
                         if s.timer <= 0:
                             if s.e_type == "boss":
-                                boss_hp = 200 + current_floor*200
+                                boss_hp = 1200 + current_floor*500
                                 is_tut = (game_mode=="TUTORIAL")
                                 if current_stage == 1:
                                     enemies.add(Boss(s.x, s.y, boss_hp, current_floor, is_tut))
@@ -2334,7 +2477,7 @@ def main():
                             elif s.e_type == "ranged":
                                 cur_hp = 30 + current_floor*15
                                 if current_stage == 1: enemies.add(RangedEnemy(s.x, s.y, cur_hp, current_floor))
-                                elif current_stage == 2: enemies.add(RangedEnemyStage2(s.x, s.y, cur_hp, current_floor))
+                                elif current_stage == 2: enemies.add(ShieldEnemyStage2(s.x, s.y, cur_hp, current_floor))
                                 else: enemies.add(RangedEnemyStage3(s.x, s.y, cur_hp, current_floor))
                             else: 
                                 cur_hp = 30 + current_floor*20
@@ -2368,14 +2511,14 @@ def main():
                     
                     if enemy.alive():
                         if isinstance(enemy, Boss): 
-                            enemy.update(player.rect.centerx, player.rect.centery, enemy_bullets, effects, player, crates, enemies)
+                            enemy.update(px=player.rect.centerx, py=player.rect.centery, enemy_bullets_group=enemy_bullets, effects_group=effects, player=player, crates_group=crates, enemies_group=enemies)
                             boss_alive = True
                         elif isinstance(enemy, HealerEnemy): 
-                            enemy.update(player.rect.centerx, player.rect.centery, crates, enemies, effects)
-                        elif isinstance(enemy, RangedEnemy): 
-                            enemy.update(player.rect.centerx, player.rect.centery, enemy_bullets, crates)
+                            enemy.update(px=player.rect.centerx, py=player.rect.centery, crates_group=crates, enemies_group=enemies, effects_group=effects)
+                        elif isinstance(enemy, RangedEnemy) and not getattr(enemy, 'is_shield_soldier', False): 
+                            enemy.update(px=player.rect.centerx, py=player.rect.centery, enemy_bullets_group=enemy_bullets, crates_group=crates)
                         else: 
-                            enemy.update(player.rect.centerx, player.rect.centery, crates)
+                            enemy.update(px=player.rect.centerx, py=player.rect.centery, crates_group=crates, enemies_group=enemies, effects_group=effects, player=player)
             
             else:
                 room_info_text, room_info_color = "-- 训 练 营 -- ", ORANGE
@@ -2385,6 +2528,9 @@ def main():
             hits = pygame.sprite.groupcollide(enemies, bullets, False, True)
             for enemy, bullet_list in hits.items():
                 for b in bullet_list:
+                    if getattr(enemy, 'is_shield_soldier', False):
+                        effects.add(DamageText(enemy.rect.centerx, enemy.rect.top-10, "免疫", custom_color=(150,150,150), is_text=True))
+                        continue 
                     enemy.take_damage(b.damage)
                     effects.add(DamageText(enemy.rect.centerx, enemy.rect.top, b.damage))
                 if enemy.hp <= 0:
